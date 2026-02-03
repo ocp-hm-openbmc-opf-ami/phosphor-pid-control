@@ -42,21 +42,21 @@ namespace pid_control
 
 static constexpr bool deferSignals = true;
 
-SensorManager buildSensors(
-    const std::map<std::string, conf::SensorConfig>& config,
-    sdbusplus::bus_t& passive, sdbusplus::bus_t& host)
+SensorManager buildSensors(std::map<std::string, conf::SensorConfig>& config,
+                           sdbusplus::bus_t& passive, sdbusplus::bus_t& host)
 {
     SensorManager mgmr(passive, host);
     auto& hostSensorBus = mgmr.getHostBus();
     auto& passiveListeningBus = mgmr.getPassiveBus();
 
-    for (const auto& it : config)
+    for (auto it = config.begin(); it != config.end();)
     {
+        auto current = it++;
         std::unique_ptr<ReadInterface> ri;
         std::unique_ptr<WriteInterface> wi;
 
-        std::string name = it.first;
-        const conf::SensorConfig* info = &it.second;
+        std::string name = current->first;
+        const conf::SensorConfig* info = &current->second;
 
         std::cerr << "Sensor: " << name << " " << info->type << " ";
         std::cerr << info->readPath << " " << info->writePath << "\n";
@@ -96,9 +96,14 @@ SensorManager buildSensors(
                 }
                 if (ri == nullptr)
                 {
-                    throw SensorBuildException(
-                        "Failed to create dbus passive sensor: " + name +
-                        " of type: " + info->type);
+                    std::cerr
+                        << " Failed to create dbus passive sensor :" << name
+                        << " of type: " << info->type << "\n";
+                    config.erase(current);
+                    auto sensor =
+                        std::make_unique<FailedSensor>(name, info->timeout);
+                    mgmr.addSensor(info->type, name, std::move(sensor));
+                    continue;
                 }
                 break;
             case IOInterfaceType::EXTERNAL:
@@ -147,9 +152,14 @@ SensorManager buildSensors(
 
                     if (wi == nullptr)
                     {
-                        throw SensorBuildException(
-                            "Unable to create write dbus interface for path: " +
-                            info->writePath);
+                        std::cerr
+                            << "Unable to create write dbus interface for path: "
+                            << info->writePath << "\n";
+                        config.erase(current);
+                        auto sensor =
+                            std::make_unique<FailedSensor>(name, info->timeout);
+                        mgmr.addSensor(info->type, name, std::move(sensor));
+                        continue;
                     }
 
                     break;

@@ -519,8 +519,9 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
         catch (const sdbusplus::exception_t&)
         {
             // this shouldn't happen, probably means daemon crashed
-            throw std::runtime_error(
-                "Error getting managed objects from " + owner.first);
+            std::cerr << "Error getting managed objects from " << owner.first
+                      << "\n";
+            continue;
         }
 
         for (auto& pathPair : configuration)
@@ -890,8 +891,32 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                     }
                     else
                     {
-                        throw std::runtime_error(
-                            "fan PID has invalid number of Outputs");
+                        /* This can be due to some of other sensor services that
+                         * host fan sensors are not working.
+                         * * Log error and continue, this allows the fan control
+                         * to work with other good fan pid class
+                         */
+                        std::cerr
+                            << "fan PID has invalid number of Outputs: input size "
+                            << inputSensorInterfaces.size() << " output size "
+                            << outputSensorInterfaces.size() << "\n";
+                        for (const SensorInterfaceType& inputSensorInterface :
+                             inputSensorInterfaces)
+                        {
+                            std::cerr
+                                << "fan PID has invalid number of Outputs: input "
+                                << inputSensorInterface.first << " : "
+                                << inputSensorInterface.second << "\n";
+                        }
+                        for (const SensorInterfaceType& outputSensorInterface :
+                             outputSensorInterfaces)
+                        {
+                            std::cerr
+                                << "fan PID has invalid number of Outputs: output "
+                                << outputSensorInterface.first << " : "
+                                << outputSensorInterface.second << "\n";
+                        }
+                        continue;
                     }
                     std::string fanSensorName;
                     std::string pwmPath;

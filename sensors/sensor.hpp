@@ -71,4 +71,27 @@ class Sensor
     int64_t _timeout;
 };
 
+class FailedSensor : public Sensor
+{
+  public:
+    FailedSensor(const std::string& name, int64_t timeout) :
+        Sensor(name, timeout)
+    {}
+
+    virtual ReadReturn read(void)
+    {
+        return ReadReturn{};
+    };
+
+    virtual void write(double value)
+    {
+        (void)value;
+    };
+
+    virtual bool getFailed(void)
+    {
+        return true;
+    };
+};
+
 } // namespace pid_control
