@@ -208,7 +208,7 @@ std::pair<std::map<int64_t, conf::PIDConf>, std::map<int64_t, conf::ZoneConfig>>
     {
         int64_t id;
         conf::PIDConf thisZone;
-        conf::ZoneConfig thisZoneConfig;
+        conf::ZoneConfig thisZoneConfig{};
 
         /* TODO: using at() throws a specific exception we can catch */
         id = zone["id"];
