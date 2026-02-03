@@ -152,33 +152,6 @@ inline bool getPowerStatus(std::shared_ptr<sdbusplus::asio::connection> conn)
     return pwrGood;
 }
 
-inline bool powerOn(std::shared_ptr<sdbusplus::asio::connection> conn)
-{
-    bool pwrGood = false;
-    std::string pwrStatus;
-    value variant;
-    try
-    {
-        auto method = conn->new_method_call(pwrService, pwrHostStateObjPath,
-                                            PROP_INTF, METHOD_GET);
-        method.append(pwrHostStateIface, "CurrentHostState");
-        auto reply = conn->call(method);
-        reply.read(variant);
-        pwrStatus = std::get<std::string>(variant);
-    }
-    catch (sdbusplus::exception_t& e)
-    {
-        phosphor::logging::log<phosphor::logging::level::ERR>(
-            "Failed to get getPowerStatus Value",
-            phosphor::logging::entry("EXCEPTION=%s", e.what()));
-        return pwrGood;
-    }
-    if (pwrStatus == "xyz.openbmc_project.State.Host.HostState.Off")
-    {
-        pwrGood = true;
-    }
-    return pwrGood;
-}
 inline void poweroff(std::shared_ptr<sdbusplus::asio::connection> conn)
 {
     std::cerr << " poweroff \n";

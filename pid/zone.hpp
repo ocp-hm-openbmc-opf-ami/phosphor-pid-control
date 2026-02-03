@@ -153,6 +153,16 @@ class DbusPidZone : public ZoneInterface, public ModeObject, public ActionOem
         uint8_t readFailureCnt = 0;
         boost::asio::io_context io;
         auto conn = std::make_shared<sdbusplus::asio::connection>(io);
+        bool powerStatus = getPowerStatus(conn);
+
+        auto isFanSensor = [&](const std::string& name) {
+            return (name.find(aspeedFan) != std::string::npos) ||
+                   (name.find(psuFan) != std::string::npos);
+        };
+
+        auto isTempSensor = [&](const std::string& name) {
+            return (name.find(tempSensor) != std::string::npos);
+        };
 
         for (const auto& sensorInput : sensorInputs)
         {
@@ -163,21 +173,20 @@ class DbusPidZone : public ZoneInterface, public ModeObject, public ActionOem
             std::string sensorName = sensor->getName();
             if (fanSensorLogging == true)
             {
-                if (((sensorName.find(aspeedFan)) || (sensorName.find(psuFan))))
+                if ((isFanSensor(sensorName)))
                 {
-                    static boost::asio::io_context io;
-                    static boost::asio::steady_timer PowerDelay(io);
                     double setpoint = 0;
 
-                    if (powerOn(conn))
-                    {
-                        tryRestartControlLoops();
-                    }
-                    if (getPowerStatus(conn))
+                    if (powerStatus)
                     {
                         setpoint = processFanAction(r.value, sensorName,
                                                     &readFailureCnt);
                     }
+                    else
+                    {
+                        tryRestartControlLoops();
+                    }
+
                     if (setpoint > 0)
                     {
                         DbusPidZone::addSetPoint(setpoint, sensorName);
@@ -186,7 +195,7 @@ class DbusPidZone : public ZoneInterface, public ModeObject, public ActionOem
             }
             else
             {
-                if ((sensorName.find(tempSensor)))
+                if (isTempSensor(sensorName))
                 {
                     double setpoint = 0;
 
