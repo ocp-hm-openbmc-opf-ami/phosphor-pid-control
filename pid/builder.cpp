@@ -69,7 +69,10 @@ std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> buildZones(
             /* The Zone doesn't have a configuration, bail. */
             static constexpr auto err =
                 "Bailing during load, missing Zone Configuration";
-            std::cerr << err << std::endl;
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << err << std::endl;
+            }
             throw std::runtime_error(err);
         }
 
@@ -79,14 +82,19 @@ std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> buildZones(
             modeControlBus, getControlPath(zoneId).c_str(), deferSignals,
             zoneConf->second.oemconfig, zoneConf->second.accumulateSetPoint);
 
-        std::cerr << "Zone Id: " << zone->getZoneID() << "\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "Zone Id: " << zone->getZoneID() << "\n";
+        }
 
         // For each PID create a Controller and a Sensor.
         for (const auto& [name, info] : pidConfig)
         {
             std::vector<pid_control::conf::SensorInput> inputs;
-            std::cerr << "PID name: " << name << "\n";
-
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << "PID name: " << name << "\n";
+            }
             /*
              * TODO(venture): Need to check if input is known to the
              * SensorManager.
@@ -141,21 +149,39 @@ std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> buildZones(
                                             info.failSafePercent);
             }
 
-            std::cerr << "inputs: ";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << "inputs: ";
+            }
             for (const auto& i : inputs)
             {
-                std::cerr << i.name;
+                if constexpr (pid_control::conf::DEBUG)
+                {
+                    std::cerr << i.name;
+                }
                 if (i.convertTempToMargin)
                 {
-                    std::cerr << "[" << i.convertMarginZero << "]";
+                    if constexpr (pid_control::conf::DEBUG)
+                    {
+                        std::cerr << "[" << i.convertMarginZero << "]";
+                    }
                 }
                 if (i.missingIsAcceptable)
                 {
-                    std::cerr << "?";
+                    if constexpr (pid_control::conf::DEBUG)
+                    {
+                        std::cerr << "?";
+                    }
                 }
-                std::cerr << ", ";
+                if constexpr (pid_control::conf::DEBUG)
+                {
+                    std::cerr << ", ";
+                }
             }
-            std::cerr << "\n";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << "\n";
+            }
         }
 
         zone->emit_object_added();

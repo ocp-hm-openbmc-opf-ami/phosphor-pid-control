@@ -79,7 +79,10 @@ double FanController::inputProc(void)
     }
     catch (const std::exception& e)
     {
-        std::cerr << "exception on inputProc.\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "exception on inputProc.\n";
+        }
         throw;
     }
 
@@ -172,10 +175,13 @@ void FanController::outputProc(double value)
             if (failsafeTransition)
             {
                 failsafeTransition = false;
-                std::cerr << "Zone " << _owner->getZoneID() << " fans, "
-                          << (failsafeCurrState ? "entering failsafe"
-                                                : "returning to normal")
-                          << " mode, output pwm: " << percent << "\n";
+                if constexpr (pid_control::conf::DEBUG)
+                {
+                    std::cerr << "Zone " << _owner->getZoneID() << " fans, "
+                              << (failsafeCurrState ? "entering failsafe"
+                                                    : "returning to normal")
+                              << " mode, output pwm: " << percent << "\n";
+                }
 
                 std::map<std::string, std::pair<std::string, double>>
                     failSensorList = _owner->getFailSafeSensors();

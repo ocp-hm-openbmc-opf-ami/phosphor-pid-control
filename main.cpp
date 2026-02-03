@@ -119,7 +119,10 @@ void stopControlLoops()
 
     if (state::zones.size() > 0 && state::zones.begin()->second.use_count() > 1)
     {
-        throw std::runtime_error("wait for count back to 1");
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            throw std::runtime_error("wait for count back to 1");
+        }
     }
 
     state::zones.clear();
@@ -148,7 +151,10 @@ void restartControlLoops()
         }
         catch (const std::exception& e)
         {
-            std::cerr << "Failed during building: " << e.what() << "\n";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << "Failed during building: " << e.what() << "\n";
+            }
             exit(EXIT_FAILURE); /* fatal error. */
         }
     }
@@ -173,7 +179,10 @@ void restartControlLoops()
 
     if (0 == state::zones.size())
     {
-        std::cerr << "No zones defined, exiting.\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "No zones defined, exiting.\n";
+        }
         std::exit(EXIT_FAILURE);
     }
 
@@ -182,7 +191,10 @@ void restartControlLoops()
         std::shared_ptr<boost::asio::steady_timer> timer =
             state::timers.emplace_back(
                 std::make_shared<boost::asio::steady_timer>(io));
-        std::cerr << "pushing zone " << i.first << "\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "pushing zone " << i.first << "\n";
+        }
         pidControlLoop(i.second, timer, &state::isCanceling);
     }
 }
@@ -205,8 +217,11 @@ void tryRestartControlLoops(bool first)
         }
         catch (const std::exception& e)
         {
-            std::cerr << "Failed during restartControlLoops, try again: "
-                      << e.what() << "\n";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << "Failed during restartControlLoops, try again: "
+                          << e.what() << "\n";
+            }
             tryRestartControlLoops(false);
         }
     };
@@ -248,8 +263,11 @@ void tryTerminateControlLoops(bool first)
         }
         catch (const std::exception& e)
         {
-            std::cerr << "Failed during stopControlLoops, try again: "
-                      << e.what() << "\n";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << "Failed during stopControlLoops, try again: "
+                          << e.what() << "\n";
+            }
             tryTerminateControlLoops(false);
             return;
         }

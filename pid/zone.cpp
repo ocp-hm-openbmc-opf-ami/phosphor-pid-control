@@ -404,14 +404,20 @@ void DbusPidZone::determineMaxSetPointRequest(void)
     }
     else if (_maximumSetPointName.compare(_maximumSetPointNamePrev))
     {
-        std::cerr << "PID Zone " << _zoneId << " max SetPoint "
-                  << _maximumSetPoint << " requested by "
-                  << _maximumSetPointName;
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "PID Zone " << _zoneId << " max SetPoint "
+                      << _maximumSetPoint << " requested by "
+                      << _maximumSetPointName;
+        }
         for (const auto& sensor : _failSafeSensors)
         {
             if (sensor.first.find("Fan") == std::string::npos)
             {
-                std::cerr << " " << sensor.first;
+                if constexpr (pid_control::conf::DEBUG)
+                {
+                    std::cerr << " " << sensor.first;
+                }
             }
         }
         std::cerr << "\n";
@@ -540,18 +546,30 @@ void DbusPidZone::initializeCache(void)
 
 void DbusPidZone::dumpCache(void)
 {
-    std::cerr << "Cache values now: \n";
+    if constexpr (pid_control::conf::DEBUG)
+    {
+        std::cerr << "Cache values now: \n";
+    }
     for (const auto& [name, value] : _cachedValuesByName)
     {
-        std::cerr << name << ": " << value.scaled << " " << value.unscaled
-                  << "\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << name << ": " << value.scaled << " " << value.unscaled
+                      << "\n";
+        }
+    }
+    if constexpr (pid_control::conf::DEBUG)
+    {
+        std::cerr << "Fan outputs now: \n";
     }
 
-    std::cerr << "Fan outputs now: \n";
     for (const auto& [name, value] : _cachedFanOutputs)
     {
-        std::cerr << name << ": " << value.scaled << " " << value.unscaled
-                  << "\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << name << ": " << value.scaled << " " << value.unscaled
+                      << "\n";
+        }
     }
 }
 
@@ -606,7 +624,10 @@ bool DbusPidZone::failSafe() const
 
 bool DbusPidZone::forceFailSafe(bool modeStatus)
 {
-    std::cerr << "force fail-safe: " << modeStatus << std::endl;
+    if constexpr (pid_control::conf::DEBUG)
+    {
+        std::cerr << "force fail-safe: " << modeStatus << std::endl;
+    }
     _forceFailSafeMode = modeStatus;
     // return ModeObject::forceFailSafe(modeStatus);
     return true;

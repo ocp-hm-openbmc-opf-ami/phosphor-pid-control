@@ -58,8 +58,14 @@ SensorManager buildSensors(std::map<std::string, conf::SensorConfig>& config,
         std::string name = current->first;
         const conf::SensorConfig* info = &current->second;
 
-        std::cerr << "Sensor: " << name << " " << info->type << " ";
-        std::cerr << info->readPath << " " << info->writePath << "\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "Sensor: " << name << " " << info->type << " ";
+        }
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << info->readPath << " " << info->writePath << "\n";
+        }
 
         IOInterfaceType rtype = getReadInterfaceType(info->readPath);
         IOInterfaceType wtype = getWriteInterfaceType(info->writePath);
@@ -177,13 +183,19 @@ SensorManager buildSensors(std::map<std::string, conf::SensorConfig>& config,
         {
             // These sensors are read-only, but only for this application
             // which only writes to fan sensors.
-            std::cerr << info->type << " readPath: " << info->readPath << "\n";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << info->type << " readPath: " << info->readPath
+                          << "\n";
+            }
 
             if (IOInterfaceType::EXTERNAL == rtype)
             {
-                std::cerr << "Creating HostSensor: " << name
-                          << " path: " << info->readPath << "\n";
-
+                if constexpr (pid_control::conf::DEBUG)
+                {
+                    std::cerr << "Creating HostSensor: " << name
+                              << " path: " << info->readPath << "\n";
+                }
                 /*
                  * The reason we handle this as a HostSensor is because it's
                  * not quite pluggable; but maybe it could be.

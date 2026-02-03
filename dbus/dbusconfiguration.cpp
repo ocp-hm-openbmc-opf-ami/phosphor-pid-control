@@ -291,14 +291,21 @@ inline void getCycleTimeSetting(
         }
         else
         {
-            std::cerr << "Zone " << zoneIndex << ": " << attributeName
-                      << " is invalid. Use default " << value << " ms\n";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << "Zone " << zoneIndex << ": " << attributeName
+                          << " is invalid. Use default " << value << " ms\n";
+            }
         }
     }
     else
     {
-        std::cerr << "Zone " << zoneIndex << ": " << attributeName
-                  << " cannot find setting. Use default " << value << " ms\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "Zone " << zoneIndex << ": " << attributeName
+                      << " cannot find setting. Use default " << value
+                      << " ms\n";
+        }
     }
 }
 
@@ -625,8 +632,11 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
 
             auto desiredIndex = static_cast<int64_t>(*ptrZoneIndex);
             auto grantedIndex = setZoneIndex(name, foundZones, desiredIndex);
-            std::cout << "Zone " << name << " is at ZoneIndex " << grantedIndex
-                      << "\n";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cout << "Zone " << name << " is at ZoneIndex "
+                          << grantedIndex << "\n";
+            }
         }
     }
 
@@ -935,25 +945,35 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                          * * Log error and continue, this allows the fan control
                          * to work with other good fan pid class
                          */
-                        std::cerr
-                            << "fan PID has invalid number of Outputs: input size "
-                            << inputSensorInterfaces.size() << " output size "
-                            << outputSensorInterfaces.size() << "\n";
+                        if constexpr (pid_control::conf::DEBUG)
+                        {
+                            std::cerr
+                                << "fan PID has invalid number of Outputs: input size "
+                                << inputSensorInterfaces.size()
+                                << " output size "
+                                << outputSensorInterfaces.size() << "\n";
+                        }
                         for (const SensorInterfaceType& inputSensorInterface :
                              inputSensorInterfaces)
                         {
-                            std::cerr
-                                << "fan PID has invalid number of Outputs: input "
-                                << inputSensorInterface.first << " : "
-                                << inputSensorInterface.second << "\n";
+                            if constexpr (pid_control::conf::DEBUG)
+                            {
+                                std::cerr
+                                    << "fan PID has invalid number of Outputs: input "
+                                    << inputSensorInterface.first << " : "
+                                    << inputSensorInterface.second << "\n";
+                            }
                         }
                         for (const SensorInterfaceType& outputSensorInterface :
                              outputSensorInterfaces)
                         {
-                            std::cerr
-                                << "fan PID has invalid number of Outputs: output "
-                                << outputSensorInterface.first << " : "
-                                << outputSensorInterface.second << "\n";
+                            if constexpr (pid_control::conf::DEBUG)
+                            {
+                                std::cerr
+                                    << "fan PID has invalid number of Outputs: output "
+                                    << outputSensorInterface.first << " : "
+                                    << outputSensorInterface.second << "\n";
+                            }
                         }
                         continue;
                     }
@@ -1285,8 +1305,11 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
     }
     if (zoneConfig.empty() || zoneDetailsConfig.empty())
     {
-        std::cerr
-            << "No fan zones, application pausing until new configuration\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr
+                << "No fan zones, application pausing until new configuration\n";
+        }
         return false;
     }
     return true;

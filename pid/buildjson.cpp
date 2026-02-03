@@ -183,14 +183,21 @@ inline void getCycleTimeSetting(const auto& zone, const int id,
         }
         else
         {
-            std::cerr << "Zone " << id << ": " << attributeName
-                      << " is invalid. Use default " << value << " ms\n";
+            if constexpr (pid_control::conf::DEBUG)
+            {
+                std::cerr << "Zone " << id << ": " << attributeName
+                          << " is invalid. Use default " << value << " ms\n";
+            }
         }
     }
     else
     {
-        std::cerr << "Zone " << id << ": " << attributeName
-                  << " cannot find setting. Use default " << value << " ms\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "Zone " << id << ": " << attributeName
+                      << " cannot find setting. Use default " << value
+                      << " ms\n";
+        }
     }
 }
 
@@ -236,8 +243,12 @@ std::pair<std::map<int64_t, conf::PIDConf>, std::map<int64_t, conf::ZoneConfig>>
 
             if (thisZone.find(name) != thisZone.end())
             {
-                std::cerr << "Warning: zone " << id
-                          << " have the same pid name " << name << std::endl;
+                if constexpr (pid_control::conf::DEBUG)
+                {
+                    std::cerr
+                        << "Warning: zone " << id << " have the same pid name "
+                        << name << std::endl;
+                }
             }
 
             thisZone[name] = item;
