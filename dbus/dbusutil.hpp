@@ -28,6 +28,19 @@ struct VariantToDoubleVisitor
     }
 };
 
+struct VariantToIntVisitor
+{
+    template <typename T>
+    int operator()(const T& t) const
+    {
+        if constexpr (std::is_arithmetic_v<T>)
+        {
+            return static_cast<int>(t);
+        }
+        throw std::invalid_argument("Cannot translate type to int");
+    }
+};
+
 std::string getSensorUnit(const std::string& type);
 std::string getSensorPath(const std::string& type, const std::string& id);
 std::string getMatch(const std::string& path);

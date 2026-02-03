@@ -137,9 +137,12 @@ int64_t DbusPidZone::getZoneID(void) const
 void DbusPidZone::addSetPoint(double setPoint, const std::string& name)
 {
     /* exclude disabled pidloop from _maximumSetPoint calculation*/
-    if (!isPidProcessEnabled(name))
+    if (!((name.find(aspeedFan)) || (name.find(psuFan))))
     {
-        return;
+        if (!isPidProcessEnabled(name))
+        {
+            return;
+        }
     }
 
     auto profileName = name;
@@ -166,8 +169,15 @@ void DbusPidZone::addSetPoint(double setPoint, const std::string& name)
      */
     if (_maximumSetPoint < _SetPoints[profileName])
     {
-        _maximumSetPoint = _SetPoints[profileName];
-        _maximumSetPointName = profileName;
+        if (setPoint < oem_setpoint)
+        {
+            _maximumSetPoint = oem_setpoint;
+        }
+        else
+        {
+            _maximumSetPoint = _SetPoints[profileName];
+            _maximumSetPointName = profileName;
+        }
     }
 }
 

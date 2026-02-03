@@ -77,7 +77,7 @@ std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> buildZones(
             zoneId, zoneConf->second.minThermalOutput,
             zoneConf->second.failsafePercent, zoneConf->second.cycleTime, mgr,
             modeControlBus, getControlPath(zoneId).c_str(), deferSignals,
-            zoneConf->second.accumulateSetPoint);
+            zoneConf->second.oemconfig, zoneConf->second.accumulateSetPoint);
 
         std::cerr << "Zone Id: " << zone->getZoneID() << "\n";
 

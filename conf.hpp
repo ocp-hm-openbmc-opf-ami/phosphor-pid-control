@@ -74,6 +74,20 @@ struct CycleTime
  * and a set of configuration settings.  This structure gets filled out with
  * the zone configuration settings and not the PID details.
  */
+
+/*
+ * Structure for holding the configuration of a OEM conditions.
+ */
+
+struct OemConfig
+{
+    uint8_t maxPwm;
+    uint8_t minNumberFailedFans;
+    uint8_t maxnumberFans;
+    uint8_t setMaxPwm;
+    std::vector<std::string> name;
+};
+
 struct ZoneConfig
 {
     /* The minimum set-point value we would ever want (typically in RPM) */
@@ -84,6 +98,9 @@ struct ZoneConfig
 
     /* Customize time settings for every cycle */
     CycleTime cycleTime;
+
+    /*OEM conditions structure*/
+    OemConfig oemconfig;
 
     /* Enable accumulation of the output PWM of different controllers with same
      * sensor */

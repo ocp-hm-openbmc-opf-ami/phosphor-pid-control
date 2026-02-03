@@ -139,6 +139,7 @@ libswampd_sources = [
     'pid/zone.cpp',
     'pid/util.cpp',
     'pid/pidloop.cpp',
+    'pid/actioncontroller.cpp',
     'pid/tuning.cpp',
     'buildjson/buildjson.cpp',
     'experiments/drive.cpp',

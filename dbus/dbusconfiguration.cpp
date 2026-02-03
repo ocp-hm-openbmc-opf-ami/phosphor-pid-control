@@ -660,6 +660,45 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                                 details.cycleTime.cycleIntervalTimeMS);
             getCycleTimeSetting(zone, index, "UpdateThermalsTimeMS",
                                 details.cycleTime.updateThermalsTimeMS);
+            for (const auto& [intf, cfg] : configuration.second)
+            {
+                if (intf.find("OemConditions") == std::string::npos)
+                {
+                    continue;
+                }
+                auto nameFind = cfg.find("Name");
+                if (nameFind != cfg.end())
+                {
+                    details.oemconfig.name.push_back(
+                        std::get<std::string>(nameFind->second));
+                }
+                auto maxPwmFind = cfg.find("MaxPwm");
+                if (maxPwmFind != cfg.end())
+                {
+                    details.oemconfig.maxPwm =
+                        std::visit(VariantToIntVisitor(), maxPwmFind->second);
+                }
+                auto minNumberFansFind = cfg.find("MinnumberFailedFans");
+                if (minNumberFansFind != cfg.end())
+                {
+                    details.oemconfig.minNumberFailedFans = std::visit(
+                        VariantToIntVisitor(), minNumberFansFind->second);
+                }
+
+                auto maxNumberFansFind = cfg.find("MaxnumberFans");
+
+                if (maxNumberFansFind != cfg.end())
+                {
+                    details.oemconfig.maxnumberFans = std::visit(
+                        VariantToIntVisitor(), maxNumberFansFind->second);
+                }
+                auto setMaxPwmFind = cfg.find("SetMaxPwm");
+                if (setMaxPwmFind != cfg.end())
+                {
+                    details.oemconfig.setMaxPwm = std::visit(
+                        VariantToIntVisitor(), setMaxPwmFind->second);
+                }
+            }
 
             bool accumulateSetPoint = false;
             auto findAccSetPoint = zone.find("AccumulateSetPoint");

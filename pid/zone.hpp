@@ -1,5 +1,6 @@
 #pragma once
 
+#include "actioncontroller.hpp"
 #include "conf.hpp"
 #include "controller.hpp"
 #include "failsafeloggers/failsafe_logger_utility.hpp"
@@ -9,6 +10,12 @@
 #include "tuning.hpp"
 #include "zone_interface.hpp"
 
+#include <boost/asio.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/io_service.hpp>
+#include <phosphor-logging/log.hpp>
+#include <sdbusplus/asio/connection.hpp>
+#include <sdbusplus/asio/object_server.hpp>
 #include <sdbusplus/bus.hpp>
 #include <sdbusplus/server.hpp>
 #include <xyz/openbmc_project/Control/Mode/server.hpp>
@@ -49,17 +56,17 @@ namespace pid_control
  * control mode changes.  It primarily holds all PID loops and holds the sensor
  * value cache that's used per iteration of the PID loops.
  */
-class DbusPidZone : public ZoneInterface, public ModeObject
+class DbusPidZone : public ZoneInterface, public ModeObject, public ActionOem
 {
   public:
     DbusPidZone(int64_t zone, double minThermalOutput, double failSafePercent,
                 conf::CycleTime cycleTime, const SensorManager& mgr,
                 sdbusplus::bus_t& bus, const char* objPath, bool defer,
-                bool accumulateSetPoint) :
+                conf::OemConfig oem, bool accumulateSetPoint) :
         ModeObject(bus, objPath,
                    defer ? ModeObject::action::defer_emit
                          : ModeObject::action::emit_object_added),
-        _zoneId(zone), _maximumSetPoint(),
+        ActionOem(oem), _zoneId(zone), _maximumSetPoint(),
         _accumulateSetPoint(accumulateSetPoint),
         _minThermalOutputSetPt(minThermalOutput),
         _zoneFailSafePercent(failSafePercent), _cycleTime(cycleTime), _mgr(mgr)
@@ -70,6 +77,7 @@ class DbusPidZone : public ZoneInterface, public ModeObject
         }
     }
 
+    conf::OemConfig oem;
     bool getManualMode(void) const override;
     /* Could put lock around this since it's accessed from two threads, but
      * only one reader/one writer.
@@ -140,11 +148,56 @@ class DbusPidZone : public ZoneInterface, public ModeObject
     void processSensorInputs(const std::vector<std::string>& sensorInputs,
                              std::chrono::high_resolution_clock::time_point now)
     {
+        uint8_t readFailureCnt = 0;
+        boost::asio::io_context io;
+        auto conn = std::make_shared<sdbusplus::asio::connection>(io);
+
         for (const auto& sensorInput : sensorInputs)
         {
             auto sensor = _mgr.getSensor(sensorInput);
             ReadReturn r = sensor->read();
             _cachedValuesByName[sensorInput] = {r.value, r.unscaled};
+
+            std::string sensorName = sensor->getName();
+            if (fanSensorLogging == true)
+            {
+                if (((sensorName.find(aspeedFan)) || (sensorName.find(psuFan))))
+                {
+                    static boost::asio::io_context io;
+                    static boost::asio::steady_timer PowerDelay(io);
+                    double setpoint = 0;
+
+                    if (powerOn(conn))
+                    {
+                        tryRestartControlLoops();
+                    }
+                    if (getPowerStatus(conn))
+                    {
+                        setpoint = processFanAction(r.value, sensorName,
+                                                    &readFailureCnt);
+                    }
+                    if (setpoint > 0)
+                    {
+                        DbusPidZone::addSetPoint(setpoint, sensorName);
+                    }
+                }
+            }
+            else
+            {
+                if ((sensorName.find(tempSensor)))
+                {
+                    double setpoint = 0;
+
+                    processThermalAction(sensorName, &setpoint);
+
+                    if (setpoint > 0)
+                    {
+                        oem_setpoint = setpoint;
+                        DbusPidZone::addSetPoint(setpoint, sensorName);
+                    }
+                }
+            }
+
             int64_t timeout = sensor->getTimeout();
             std::chrono::high_resolution_clock::time_point then = r.updated;
 
