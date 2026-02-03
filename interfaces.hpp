@@ -8,7 +8,7 @@ namespace pid_control
 struct ReadReturn
 {
     double value = std::numeric_limits<double>::quiet_NaN();
-    std::chrono::high_resolution_clock::time_point updated;
+    std::chrono::steady_clock::time_point updated;
     double unscaled = value;
 
     bool operator==(const ReadReturn& rhs) const

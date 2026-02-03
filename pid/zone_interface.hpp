@@ -126,6 +126,7 @@ class ZoneInterface
     virtual void updateThermalPowerDebugInterface(
         std::string pidName, std::string leader, double input,
         double output) = 0;
+    virtual bool forceFailSafe(bool modeStatus) = 0;
 };
 
 } // namespace pid_control

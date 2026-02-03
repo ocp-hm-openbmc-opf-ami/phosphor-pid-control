@@ -129,6 +129,8 @@ class DbusPidZone : public ZoneInterface, public ModeObject, public ActionOem
     bool manual(bool value) override;
     /* Method for reading whether in fail-safe mode over dbus */
     bool failSafe() const override;
+    /* Method for setting the force fail-safe mode over dbus */
+    bool forceFailSafe(bool modeStatus) override;
     /* Method for recording the maximum SetPoint PID config name */
     std::string leader() const override;
     /* Method for control process for each loop at runtime */
@@ -146,7 +148,7 @@ class DbusPidZone : public ZoneInterface, public ModeObject, public ActionOem
   private:
     template <bool fanSensorLogging>
     void processSensorInputs(const std::vector<std::string>& sensorInputs,
-                             std::chrono::high_resolution_clock::time_point now)
+                             std::chrono::steady_clock::time_point now)
     {
         uint8_t readFailureCnt = 0;
         boost::asio::io_context io;
@@ -199,7 +201,7 @@ class DbusPidZone : public ZoneInterface, public ModeObject, public ActionOem
             }
 
             int64_t timeout = sensor->getTimeout();
-            std::chrono::high_resolution_clock::time_point then = r.updated;
+            std::chrono::steady_clock::time_point then = r.updated;
 
             auto duration =
                 std::chrono::duration_cast<std::chrono::seconds>(now - then)
@@ -279,6 +281,7 @@ class DbusPidZone : public ZoneInterface, public ModeObject, public ActionOem
     bool _manualMode = false;
     bool _redundantWrite = false;
     bool _accumulateSetPoint = false;
+    bool _forceFailSafeMode = false;
     const double _minThermalOutputSetPt;
     // Zone fail safe Percent setting by configuration.
     const double _zoneFailSafePercent;

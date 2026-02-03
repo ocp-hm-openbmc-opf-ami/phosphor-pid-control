@@ -398,12 +398,12 @@ TEST_F(PidZoneTest, ThermalInputs_FailsafeToValid_ReadsSensors)
 
     ReadReturn r1;
     r1.value = 10.0;
-    r1.updated = std::chrono::high_resolution_clock::now();
+    r1.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
 
     ReadReturn r2;
     r2.value = 11.0;
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
 
     // Read the sensors, this will put the values into the cache.
@@ -451,12 +451,12 @@ TEST_F(PidZoneTest, FanInputTest_VerifiesFanValuesCached)
 
     ReadReturn r1;
     r1.value = 10.0;
-    r1.updated = std::chrono::high_resolution_clock::now();
+    r1.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
 
     ReadReturn r2;
     r2.value = 11.0;
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
 
     // Method under test will read through each fan sensor for the zone and
@@ -505,12 +505,12 @@ TEST_F(PidZoneTest, ThermalInput_ValueTimeoutEntersFailSafeMode)
 
     ReadReturn r1;
     r1.value = 10.0;
-    r1.updated = std::chrono::high_resolution_clock::now();
+    r1.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
 
     ReadReturn r2;
     r2.value = 11.0;
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
 
     zone->updateSensors();
@@ -520,7 +520,7 @@ TEST_F(PidZoneTest, ThermalInput_ValueTimeoutEntersFailSafeMode)
     // sensor1 will have an updated field older than its timeout value, but
     // sensor2 will be fine. :D
     r1.updated -= std::chrono::seconds(3);
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
 
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
@@ -577,7 +577,7 @@ TEST_F(PidZoneTest, ThermalInput_MissingIsAcceptableNoFailSafe)
 
     ReadReturn r2;
     r2.value = 11.0;
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
 
     zone->updateSensors();
@@ -587,7 +587,7 @@ TEST_F(PidZoneTest, ThermalInput_MissingIsAcceptableNoFailSafe)
     EXPECT_FALSE(zone->getFailSafeMode());
 
     r1.value = 10.0;
-    r1.updated = std::chrono::high_resolution_clock::now();
+    r1.updated = std::chrono::steady_clock::now();
 
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
@@ -600,7 +600,7 @@ TEST_F(PidZoneTest, ThermalInput_MissingIsAcceptableNoFailSafe)
     // sensor1 will have an updated field older than its timeout value, but
     // sensor2 will be fine. :D
     r1.updated -= std::chrono::seconds(3);
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
 
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
@@ -612,7 +612,7 @@ TEST_F(PidZoneTest, ThermalInput_MissingIsAcceptableNoFailSafe)
 
     // Do the same thing, but for the opposite sensors: r1 is good,
     // but r2 is set to some time in the past.
-    r1.updated = std::chrono::high_resolution_clock::now();
+    r1.updated = std::chrono::steady_clock::now();
     r2.updated -= std::chrono::seconds(3);
 
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
@@ -623,8 +623,8 @@ TEST_F(PidZoneTest, ThermalInput_MissingIsAcceptableNoFailSafe)
     // have MissingIsAcceptable set true, it is still subject to failsafe.
     EXPECT_TRUE(zone->getFailSafeMode());
 
-    r1.updated = std::chrono::high_resolution_clock::now();
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r1.updated = std::chrono::steady_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
 
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
@@ -672,12 +672,12 @@ TEST_F(PidZoneTest, FanInputTest_FailsafeToValid_ReadsSensors)
 
     ReadReturn r1;
     r1.value = 10.0;
-    r1.updated = std::chrono::high_resolution_clock::now();
+    r1.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
 
     ReadReturn r2;
     r2.value = 11.0;
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
 
     // Method under test will read through each fan sensor for the zone and
@@ -729,12 +729,12 @@ TEST_F(PidZoneTest, FanInputTest_ValueTimeoutEntersFailSafeMode)
 
     ReadReturn r1;
     r1.value = 10.0;
-    r1.updated = std::chrono::high_resolution_clock::now();
+    r1.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
 
     ReadReturn r2;
     r2.value = 11.0;
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));
 
     // Method under test will read through each fan sensor for the zone and
@@ -745,7 +745,7 @@ TEST_F(PidZoneTest, FanInputTest_ValueTimeoutEntersFailSafeMode)
     EXPECT_FALSE(zone->getFailSafeMode());
 
     r1.updated -= std::chrono::seconds(3);
-    r2.updated = std::chrono::high_resolution_clock::now();
+    r2.updated = std::chrono::steady_clock::now();
 
     EXPECT_CALL(*sensor_ptr1, read()).WillOnce(Return(r1));
     EXPECT_CALL(*sensor_ptr2, read()).WillOnce(Return(r2));

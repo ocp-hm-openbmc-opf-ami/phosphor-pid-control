@@ -39,7 +39,7 @@ ReadReturn DbusActiveRead::read(void)
      * Technically it might not be a value from now, but there's no timestamp
      * on Sensor.Value yet.
      */
-    ReadReturn r = {value, std::chrono::high_resolution_clock::now()};
+    ReadReturn r = {value, std::chrono::steady_clock::now()};
 
     return r;
 }

@@ -163,7 +163,7 @@ void DbusPassive::setValue(double value, double unscaled)
 
     _value = value;
     _unscaled = unscaled;
-    _updated = std::chrono::high_resolution_clock::now();
+    _updated = std::chrono::steady_clock::now();
 }
 
 void DbusPassive::setValue(double value)
@@ -372,28 +372,39 @@ int handleSensorValue(sdbusplus::message_t& msg, DbusPassive* owner)
             owner->updateValue(value, false);
         }
     }
-    else if (msgSensor == "xyz.openbmc_project.Sensor.Threshold.Critical")
+    else if ((msgSensor == "xyz.openbmc_project.Sensor.Threshold.Critical") ||
+             (msgSensor ==
+              "xyz.openbmc_project.Sensor.Threshold.NonRecoverable"))
     {
         auto criticalAlarmLow = msgData.find("CriticalAlarmLow");
         auto criticalAlarmHigh = msgData.find("CriticalAlarmHigh");
-        if (criticalAlarmHigh == msgData.end() &&
-            criticalAlarmLow == msgData.end())
+
+        auto NonRecoverableAlarmLow = msgData.find("NonRecoverableAlarmLow");
+        auto NonRecoverableAlarmHigh = msgData.find("NonRecoverableAlarmHigh");
+
+        if ((criticalAlarmHigh == msgData.end() &&
+             criticalAlarmLow == msgData.end()) &&
+            (NonRecoverableAlarmHigh == msgData.end() &&
+             NonRecoverableAlarmLow == msgData.end()))
         {
             return 0;
         }
 
         bool asserted = false;
-        if (criticalAlarmLow != msgData.end())
-        {
-            asserted = std::get<bool>(criticalAlarmLow->second);
-        }
 
-        // checking both as in theory you could de-assert one threshold and
-        // assert the other at the same moment
-        if (!asserted && criticalAlarmHigh != msgData.end())
-        {
-            asserted = std::get<bool>(criticalAlarmHigh->second);
-        }
+        asserted |= (criticalAlarmLow != msgData.end())
+                        ? std::get<bool>(criticalAlarmLow->second)
+                        : asserted;
+        asserted |= (criticalAlarmHigh != msgData.end())
+                        ? std::get<bool>(criticalAlarmHigh->second)
+                        : asserted;
+        asserted |= (NonRecoverableAlarmLow != msgData.end())
+                        ? std::get<bool>(NonRecoverableAlarmLow->second)
+                        : asserted;
+        asserted |= (NonRecoverableAlarmHigh != msgData.end())
+                        ? std::get<bool>(NonRecoverableAlarmHigh->second)
+                        : asserted;
+
         owner->setFailed(asserted);
     }
 #ifdef UNC_FAILSAFE

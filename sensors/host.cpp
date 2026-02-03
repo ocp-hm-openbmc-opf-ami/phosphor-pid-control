@@ -76,7 +76,7 @@ ValueType HostSensor::value(ValueType value)
 {
     std::lock_guard<std::mutex> guard(_lock);
 
-    _updated = std::chrono::high_resolution_clock::now();
+    _updated = std::chrono::steady_clock::now();
     _value = value * pow(10, getScale(this)); /* scale value */
 
     return ValueObject::value(value);

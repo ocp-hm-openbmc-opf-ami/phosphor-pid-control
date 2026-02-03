@@ -28,7 +28,7 @@
 namespace pid_control
 {
 
-using tstamp = std::chrono::high_resolution_clock::time_point;
+using tstamp = std::chrono::steady_clock::time_point;
 
 #define DRIVE_TIME 1
 #define DRIVE_GOAL 2
@@ -89,7 +89,7 @@ static void driveGoal(int64_t& seriesCnt, int64_t setPwm, int64_t goal,
         int64_t n0 = static_cast<int64_t>(r0.value);
         int64_t n1 = static_cast<int64_t>(r1.value);
 
-        tstamp t1 = std::chrono::high_resolution_clock::now();
+        tstamp t1 = std::chrono::steady_clock::now();
 
         series.push_back(std::make_tuple(t1, n0, n1));
         seriesCnt += 1;
@@ -154,7 +154,7 @@ static void driveTime([[maybe_unused]] int64_t& seriesCnt, int64_t setPwm,
         ReadReturn r1 = fan1->read();
         int64_t n0 = static_cast<int64_t>(r0.value);
         int64_t n1 = static_cast<int64_t>(r1.value);
-        tstamp t1 = std::chrono::high_resolution_clock::now();
+        tstamp t1 = std::chrono::steady_clock::now();
 
         series.push_back(std::make_tuple(t1, n0, n1));
 
@@ -211,7 +211,7 @@ int driveMain(void)
     r1 = fan1->read();
     int64_t fan0_start = r0.value;
     int64_t fan1_start = r1.value;
-    tstamp t1 = std::chrono::high_resolution_clock::now();
+    tstamp t1 = std::chrono::steady_clock::now();
 
     /*
      * I've done experiments, and seen 9080,10243 as a starting point

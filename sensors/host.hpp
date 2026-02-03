@@ -63,7 +63,7 @@ class HostSensor : public Sensor, public ValueObject
      * together.
      */
     std::mutex _lock;
-    std::chrono::high_resolution_clock::time_point _updated;
+    std::chrono::steady_clock::time_point _updated;
     double _value = 0;
 };
 

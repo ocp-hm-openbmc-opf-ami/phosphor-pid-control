@@ -94,7 +94,7 @@ class DbusPassive : public ReadInterface
     std::string path;
     std::shared_ptr<DbusPassiveRedundancy> redundancy;
     /* The last time the value was refreshed, not necessarily changed. */
-    std::chrono::high_resolution_clock::time_point _updated;
+    std::chrono::steady_clock::time_point _updated;
 };
 
 int handleSensorValue(sdbusplus::message_t& msg, DbusPassive* owner);

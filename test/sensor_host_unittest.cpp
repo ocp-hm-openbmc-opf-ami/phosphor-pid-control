@@ -100,8 +100,7 @@ TEST(HostSensorTest, VerifyWriteThenReadMatches)
                 return 0;
             }));
 
-    std::chrono::high_resolution_clock::time_point t1 =
-        std::chrono::high_resolution_clock::now();
+    std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 
     hs->value(new_value);
     r = hs->read();

@@ -33,7 +33,7 @@ ReadReturn SysFsRead::read(void)
     ifs.close();
 
     ReadReturn r = {static_cast<double>(value),
-                    std::chrono::high_resolution_clock::now()};
+                    std::chrono::steady_clock::now()};
 
     return r;
 }

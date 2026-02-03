@@ -52,7 +52,7 @@ TEST(PluggableSensorTest, TryReadingTest)
 
     ReadReturn r;
     r.value = 0.1;
-    r.updated = std::chrono::high_resolution_clock::now();
+    r.updated = std::chrono::steady_clock::now();
 
     EXPECT_CALL(*rip, read()).WillOnce(Invoke([&](void) { return r; }));
 

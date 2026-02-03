@@ -35,7 +35,7 @@
 #include <sstream>
 #include <string>
 
-using tstamp = std::chrono::high_resolution_clock::time_point;
+using tstamp = std::chrono::steady_clock::time_point;
 using namespace std::literals::chrono_literals;
 
 // Enforces minimum duration between events
@@ -93,6 +93,10 @@ void DbusPidZone::setManualMode(bool mode)
 
 bool DbusPidZone::getFailSafeMode(void) const
 {
+    if (true == _forceFailSafeMode)
+    {
+        return true;
+    }
     // If any keys are present at least one sensor is in fail safe mode.
     return !_failSafeSensors.empty();
 }
@@ -333,7 +337,7 @@ static bool fileParseRpm(const std::string& fileName, double& rpmValue)
     // The file is optional, intentionally not an error if file not found
     if (!(errText.empty()))
     {
-        tstamp now = std::chrono::high_resolution_clock::now();
+        tstamp now = std::chrono::steady_clock::now();
         if (allowThrottle(now, throttlePace))
         {
             std::cerr << "Unable to read from '" << fileName << "': " << errText
@@ -480,7 +484,7 @@ void DbusPidZone::updateFanTelemetry(void)
      * is disabled?  I think it's a waste to try and log things even if the
      * data is just being dropped though.
      */
-    const auto now = std::chrono::high_resolution_clock::now();
+    const auto now = std::chrono::steady_clock::now();
     if (loggingEnabled)
     {
         _log << std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -507,7 +511,7 @@ void DbusPidZone::updateFanTelemetry(void)
 void DbusPidZone::updateSensors(void)
 {
     processSensorInputs</* fanSensorLogging */ false>(
-        _thermalInputs, std::chrono::high_resolution_clock::now());
+        _thermalInputs, std::chrono::steady_clock::now());
 
     return;
 }
@@ -598,6 +602,14 @@ bool DbusPidZone::manual(bool value)
 bool DbusPidZone::failSafe() const
 {
     return getFailSafeMode();
+}
+
+bool DbusPidZone::forceFailSafe(bool modeStatus)
+{
+    std::cerr << "force fail-safe: " << modeStatus << std::endl;
+    _forceFailSafeMode = modeStatus;
+    // return ModeObject::forceFailSafe(modeStatus);
+    return true;
 }
 
 void DbusPidZone::addPidControlProcess(std::string name, std::string type,

@@ -279,7 +279,7 @@ void LogContext(PidCoreLog& pidLog, const std::chrono::milliseconds& msNow,
 
 std::chrono::milliseconds LogTimestamp(void)
 {
-    auto clockNow = std::chrono::high_resolution_clock::now();
+    auto clockNow = std::chrono::steady_clock::now();
     auto msNow = std::chrono::duration_cast<std::chrono::milliseconds>(
         clockNow.time_since_epoch());
     return msNow;

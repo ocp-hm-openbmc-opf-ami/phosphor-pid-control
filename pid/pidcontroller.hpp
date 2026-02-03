@@ -41,6 +41,7 @@ class PIDController : public Controller
         _pid_info.slewPos = static_cast<double>(0.0);
         _pid_info.negativeHysteresis = static_cast<double>(0.0);
         _pid_info.positiveHysteresis = static_cast<double>(0.0);
+        _pid_info.lastError = static_cast<double>(0.0);
     }
 
     virtual ~PIDController() {}
