@@ -1,8 +1,14 @@
 #pragma once
 
+#include "interfaces.hpp"
 #include "pid/zone_interface.hpp"
+#include "sensors/sensor.hpp"
 
+#include <cstdint>
+#include <map>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -13,7 +19,7 @@ namespace pid_control
 class ZoneMock : public ZoneInterface
 {
   public:
-    virtual ~ZoneMock() = default;
+    ~ZoneMock() override = default;
 
     MOCK_METHOD0(updateFanTelemetry, void());
     MOCK_METHOD0(updateSensors, void());
@@ -21,7 +27,7 @@ class ZoneMock : public ZoneInterface
     MOCK_METHOD1(getCachedValue, double(const std::string&));
 
     // Compatibility interface for getCachedValues
-    ValueCacheEntry getCachedValues(const std::string& s)
+    ValueCacheEntry getCachedValues(const std::string& s) override
     {
         auto v = getCachedValue(s);
         return {v, v};

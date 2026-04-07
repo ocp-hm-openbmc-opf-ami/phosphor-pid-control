@@ -4,6 +4,8 @@
 #include "pid/pidcontroller.hpp"
 #include "pid/zone_interface.hpp"
 
+#include <string>
+
 #include <gmock/gmock.h>
 
 namespace pid_control
@@ -12,7 +14,7 @@ namespace pid_control
 class ControllerMock : public PIDController
 {
   public:
-    virtual ~ControllerMock() = default;
+    ~ControllerMock() override = default;
 
     ControllerMock(const std::string& id, ZoneInterface* owner) :
         PIDController(id, owner)

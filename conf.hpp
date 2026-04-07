@@ -3,6 +3,7 @@
 #include "pid/ec/pid.hpp"
 #include "pid/ec/stepwise.hpp"
 
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <string>
@@ -30,6 +31,7 @@ struct SensorConfig
     int64_t timeout;
     bool ignoreDbusMinMax;
     bool unavailableAsFailed;
+    bool ignoreFailIfHostOff;
 };
 
 /*
@@ -108,8 +110,6 @@ struct ZoneConfig
 };
 
 using PIDConf = std::map<std::string, ControllerInfo>;
-
-constexpr bool DEBUG = false; // enable to print found configuration
 
 } // namespace conf
 

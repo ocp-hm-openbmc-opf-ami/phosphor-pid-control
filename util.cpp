@@ -17,10 +17,14 @@
 
 #include "conf.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <map>
+#include <set>
 #include <string>
+#include <vector>
 
 namespace pid_control
 {
@@ -29,10 +33,6 @@ void debugPrint(const std::map<std::string, conf::SensorConfig>& sensorConfig,
                 const std::map<int64_t, conf::PIDConf>& zoneConfig,
                 const std::map<int64_t, conf::ZoneConfig>& zoneDetailsConfig)
 {
-    if constexpr (!conf::DEBUG)
-    {
-        return;
-    }
     // print sensor config
     std::cout << "sensor config:\n";
     std::cout << "{\n";
@@ -45,7 +45,8 @@ void debugPrint(const std::map<std::string, conf::SensorConfig>& sensorConfig,
         std::cout << pair.second.min << ", ";
         std::cout << pair.second.max << ", ";
         std::cout << pair.second.timeout << ", ";
-        std::cout << pair.second.unavailableAsFailed << "},\n\t},\n";
+        std::cout << pair.second.unavailableAsFailed << ", ";
+        std::cout << pair.second.ignoreFailIfHostOff << "},\n\t},\n";
     }
     std::cout << "}\n\n";
     std::cout << "ZoneDetailsConfig\n";
@@ -158,6 +159,7 @@ std::vector<std::string> splitNames(
 {
     std::vector<std::string> results;
 
+    results.reserve(sensorInputs.size());
     for (const auto& sensorInput : sensorInputs)
     {
         results.emplace_back(sensorInput.name);

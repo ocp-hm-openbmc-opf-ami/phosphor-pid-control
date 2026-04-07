@@ -1,19 +1,33 @@
+#include "conf.hpp"
 #include "failsafeloggers/builder.hpp"
-#include "failsafeloggers/failsafe_logger.hpp"
-#include "failsafeloggers/failsafe_logger_utility.hpp"
-#include "pid/ec/logging.hpp"
+#include "interfaces.hpp"
 #include "pid/ec/pid.hpp"
+#include "pid/pidcontroller.hpp"
 #include "pid/zone.hpp"
+#include "pid/zone_interface.hpp"
 #include "sensors/manager.hpp"
+#include "sensors/sensor.hpp"
 #include "test/controller_mock.hpp"
 #include "test/helpers.hpp"
 #include "test/sensor_mock.hpp"
 
+#include <systemd/sd-bus.h>
+
 #include <sdbusplus/test/sdbus_mock.hpp>
+#include <xyz/openbmc_project/Control/Mode/common.hpp>
+#include <xyz/openbmc_project/Debug/Pid/ThermalPower/common.hpp>
+#include <xyz/openbmc_project/Debug/Pid/Zone/common.hpp>
+#include <xyz/openbmc_project/Object/Enable/common.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <cstring>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -29,11 +43,11 @@ using ::testing::IsNull;
 using ::testing::Return;
 using ::testing::StrEq;
 
-static std::string modeInterface = "xyz.openbmc_project.Control.Mode";
-static std::string debugZoneInterface = "xyz.openbmc_project.Debug.Pid.Zone";
-static std::string enableInterface = "xyz.openbmc_project.Object.Enable";
-static std::string debugThermalPowerInterface =
-    "xyz.openbmc_project.Debug.Pid.ThermalPower";
+using ControlMode = sdbusplus::common::xyz::openbmc_project::control::Mode;
+using DebugPidZone = sdbusplus::common::xyz::openbmc_project::debug::pid::Zone;
+using DebugThermalPower =
+    sdbusplus::common::xyz::openbmc_project::debug::pid::ThermalPower;
+using ObjectEnable = sdbusplus::common::xyz::openbmc_project::object::Enable;
 
 namespace
 {
@@ -66,9 +80,9 @@ TEST(PidZoneConstructorTest, BoringConstructorTest)
 
     double d;
     std::vector<std::string> properties;
-    SetupDbusObject(&sdbus_mock_mode, defer, objPath, modeInterface, properties,
-                    &d);
-    SetupDbusObject(&sdbus_mock_mode, defer, objPath, debugZoneInterface,
+    SetupDbusObject(&sdbus_mock_mode, defer, objPath, ControlMode::interface,
+                    properties, &d);
+    SetupDbusObject(&sdbus_mock_mode, defer, objPath, DebugPidZone::interface,
                     properties, &d);
 
     std::string sensorname = "temp1";
@@ -78,7 +92,7 @@ TEST(PidZoneConstructorTest, BoringConstructorTest)
     double de;
     std::vector<std::string> propertiesenable;
     SetupDbusObject(&sdbus_mock_enable, defer, pidsensorpath.c_str(),
-                    enableInterface, propertiesenable, &de);
+                    ObjectEnable::interface, propertiesenable, &de);
 
     DbusPidZone p(zone, minThermalOutput, failSafePercent, cycleTime, m,
                   bus_mock_mode, objPath, defer, accSetPoint);
@@ -91,7 +105,7 @@ class PidZoneTest : public ::testing::Test
 {
   protected:
     PidZoneTest() :
-        property_index(), properties(), sdbus_mock_passive(), sdbus_mock_host(),
+        properties(), sdbus_mock_passive(), sdbus_mock_host(),
         sdbus_mock_mode(), sdbus_mock_enable()
     {
         EXPECT_CALL(sdbus_mock_host,
@@ -104,26 +118,24 @@ class PidZoneTest : public ::testing::Test
         auto bus_mock_mode = sdbusplus::get_mocked_new(&sdbus_mock_mode);
         auto bus_mock_enable = sdbusplus::get_mocked_new(&sdbus_mock_enable);
 
-        // Compiler weirdly not happy about just instantiating mgr(...);
-        SensorManager m(bus_mock_passive, bus_mock_host);
-        mgr = std::move(m);
+        mgr = SensorManager(bus_mock_passive, bus_mock_host);
 
-        SetupDbusObject(&sdbus_mock_mode, defer, objPath, modeInterface,
-                        properties, &property_index);
-        SetupDbusObject(&sdbus_mock_mode, defer, objPath, debugZoneInterface,
-                        properties, &property_index);
+        SetupDbusObject(&sdbus_mock_mode, defer, objPath,
+                        ControlMode::interface, properties, &property_index);
+        SetupDbusObject(&sdbus_mock_mode, defer, objPath,
+                        DebugPidZone::interface, properties, &property_index);
 
         SetupDbusObject(&sdbus_mock_enable, defer, pidsensorpath.c_str(),
-                        enableInterface, propertiesenable,
+                        ObjectEnable::interface, propertiesenable,
                         &propertyenable_index);
 
         zone = std::make_unique<DbusPidZone>(
-            zoneId, minThermalOutput, failSafePercent, cycleTime, mgr,
+            zoneId, minThermalOutput, failSafePercent, cycleTime, *mgr,
             bus_mock_mode, objPath, defer, accSetPoint);
     }
 
     // unused
-    double property_index;
+    double property_index{};
     std::vector<std::string> properties;
     double propertyenable_index;
     std::vector<std::string> propertiesenable;
@@ -139,7 +151,7 @@ class PidZoneTest : public ::testing::Test
     bool defer = true;
     bool accSetPoint = false;
     const char* objPath = "/path/";
-    SensorManager mgr;
+    std::optional<SensorManager> mgr;
     conf::CycleTime cycleTime;
 
     std::string sensorname = "temp1";
@@ -175,7 +187,7 @@ TEST_F(PidZoneTest, AddPidControlProcessGetAndSetEnableTest_BehavesAsExpected)
 
     EXPECT_CALL(sdbus_mock_mode, sd_bus_emit_properties_changed_strv(
                                      IsNull(), StrEq(pidsensorpath.c_str()),
-                                     StrEq(enableInterface), NotNull()))
+                                     StrEq(ObjectEnable::interface), NotNull()))
         .Times(::testing::AnyNumber())
         .WillOnce(Invoke(
             [&]([[maybe_unused]] sd_bus* bus, [[maybe_unused]] const char* path,
@@ -232,7 +244,7 @@ TEST_F(PidZoneTest, RpmSetPoints_AddMaxClear_BehaveAsExpected)
 
     EXPECT_CALL(sdbus_mock_mode, sd_bus_emit_properties_changed_strv(
                                      IsNull(), StrEq(pidsensorpath.c_str()),
-                                     StrEq(enableInterface), NotNull()))
+                                     StrEq(ObjectEnable::interface), NotNull()))
         .Times(::testing::AnyNumber())
         .WillOnce(Invoke(
             [&]([[maybe_unused]] sd_bus* bus, [[maybe_unused]] const char* path,
@@ -276,7 +288,7 @@ TEST_F(PidZoneTest, RpmSetPoints_AddBelowMinimum_BehavesAsExpected)
 
     EXPECT_CALL(sdbus_mock_mode, sd_bus_emit_properties_changed_strv(
                                      IsNull(), StrEq(pidsensorpath.c_str()),
-                                     StrEq(enableInterface), NotNull()))
+                                     StrEq(ObjectEnable::interface), NotNull()))
         .Times(::testing::AnyNumber())
         .WillOnce(Invoke(
             [&]([[maybe_unused]] sd_bus* bus, [[maybe_unused]] const char* path,
@@ -323,7 +335,7 @@ TEST_F(PidZoneTest, GetFailSafePercent_SingleFailedReturnsExpected)
 
     std::map<std::string, std::pair<std::string, double>> failSensorList =
         zone->getFailSafeSensors();
-    EXPECT_EQ(1, failSensorList.size());
+    EXPECT_EQ(1U, failSensorList.size());
     EXPECT_EQ("Sensor threshold asserted", failSensorList["temp1"].first);
     EXPECT_EQ(failSafePercent, failSensorList["temp1"].second);
 }
@@ -350,7 +362,7 @@ TEST_F(PidZoneTest, GetFailSafePercent_MultiFailedReturnsExpected)
 
     std::map<std::string, std::pair<std::string, double>> failSensorList =
         zone->getFailSafeSensors();
-    EXPECT_EQ(3, failSensorList.size());
+    EXPECT_EQ(3U, failSensorList.size());
     EXPECT_EQ("Sensor threshold asserted", failSensorList["temp1"].first);
     EXPECT_EQ(60, failSensorList["temp1"].second);
     EXPECT_EQ("Sensor reading bad", failSensorList["temp2"].first);
@@ -381,10 +393,10 @@ TEST_F(PidZoneTest, ThermalInputs_FailsafeToValid_ReadsSensors)
     SensorMock* sensor_ptr2 = reinterpret_cast<SensorMock*>(sensor2.get());
 
     std::string type = "unchecked";
-    mgr.addSensor(type, name1, std::move(sensor1));
-    EXPECT_EQ(mgr.getSensor(name1), sensor_ptr1);
-    mgr.addSensor(type, name2, std::move(sensor2));
-    EXPECT_EQ(mgr.getSensor(name2), sensor_ptr2);
+    mgr->addSensor(type, name1, std::move(sensor1));
+    EXPECT_EQ(mgr->getSensor(name1), sensor_ptr1);
+    mgr->addSensor(type, name2, std::move(sensor2));
+    EXPECT_EQ(mgr->getSensor(name2), sensor_ptr2);
 
     // Now that the sensors exist, add them to the zone.
     zone->addThermalInput(name1, false);
@@ -437,10 +449,10 @@ TEST_F(PidZoneTest, FanInputTest_VerifiesFanValuesCached)
     SensorMock* sensor_ptr2 = reinterpret_cast<SensorMock*>(sensor2.get());
 
     std::string type = "unchecked";
-    mgr.addSensor(type, name1, std::move(sensor1));
-    EXPECT_EQ(mgr.getSensor(name1), sensor_ptr1);
-    mgr.addSensor(type, name2, std::move(sensor2));
-    EXPECT_EQ(mgr.getSensor(name2), sensor_ptr2);
+    mgr->addSensor(type, name1, std::move(sensor1));
+    EXPECT_EQ(mgr->getSensor(name1), sensor_ptr1);
+    mgr->addSensor(type, name2, std::move(sensor2));
+    EXPECT_EQ(mgr->getSensor(name2), sensor_ptr2);
 
     // Now that the sensors exist, add them to the zone.
     zone->addFanInput(name1, false);
@@ -489,10 +501,10 @@ TEST_F(PidZoneTest, ThermalInput_ValueTimeoutEntersFailSafeMode)
     SensorMock* sensor_ptr2 = reinterpret_cast<SensorMock*>(sensor2.get());
 
     std::string type = "unchecked";
-    mgr.addSensor(type, name1, std::move(sensor1));
-    EXPECT_EQ(mgr.getSensor(name1), sensor_ptr1);
-    mgr.addSensor(type, name2, std::move(sensor2));
-    EXPECT_EQ(mgr.getSensor(name2), sensor_ptr2);
+    mgr->addSensor(type, name1, std::move(sensor1));
+    EXPECT_EQ(mgr->getSensor(name1), sensor_ptr1);
+    mgr->addSensor(type, name2, std::move(sensor2));
+    EXPECT_EQ(mgr->getSensor(name2), sensor_ptr2);
 
     zone->addThermalInput(name1, false);
     zone->addThermalInput(name2, false);
@@ -555,10 +567,10 @@ TEST_F(PidZoneTest, ThermalInput_MissingIsAcceptableNoFailSafe)
     SensorMock* sensor_ptr2 = reinterpret_cast<SensorMock*>(sensor2.get());
 
     std::string type = "unchecked";
-    mgr.addSensor(type, name1, std::move(sensor1));
-    EXPECT_EQ(mgr.getSensor(name1), sensor_ptr1);
-    mgr.addSensor(type, name2, std::move(sensor2));
-    EXPECT_EQ(mgr.getSensor(name2), sensor_ptr2);
+    mgr->addSensor(type, name1, std::move(sensor1));
+    EXPECT_EQ(mgr->getSensor(name1), sensor_ptr1);
+    mgr->addSensor(type, name2, std::move(sensor2));
+    EXPECT_EQ(mgr->getSensor(name2), sensor_ptr2);
 
     // Only sensor1 has MissingIsAcceptable enabled for it
     zone->addThermalInput(name1, true);
@@ -655,10 +667,10 @@ TEST_F(PidZoneTest, FanInputTest_FailsafeToValid_ReadsSensors)
     SensorMock* sensor_ptr2 = reinterpret_cast<SensorMock*>(sensor2.get());
 
     std::string type = "unchecked";
-    mgr.addSensor(type, name1, std::move(sensor1));
-    EXPECT_EQ(mgr.getSensor(name1), sensor_ptr1);
-    mgr.addSensor(type, name2, std::move(sensor2));
-    EXPECT_EQ(mgr.getSensor(name2), sensor_ptr2);
+    mgr->addSensor(type, name1, std::move(sensor1));
+    EXPECT_EQ(mgr->getSensor(name1), sensor_ptr1);
+    mgr->addSensor(type, name2, std::move(sensor2));
+    EXPECT_EQ(mgr->getSensor(name2), sensor_ptr2);
 
     // Now that the sensors exist, add them to the zone.
     zone->addFanInput(name1, false);
@@ -712,10 +724,10 @@ TEST_F(PidZoneTest, FanInputTest_ValueTimeoutEntersFailSafeMode)
     SensorMock* sensor_ptr2 = reinterpret_cast<SensorMock*>(sensor2.get());
 
     std::string type = "unchecked";
-    mgr.addSensor(type, name1, std::move(sensor1));
-    EXPECT_EQ(mgr.getSensor(name1), sensor_ptr1);
-    mgr.addSensor(type, name2, std::move(sensor2));
-    EXPECT_EQ(mgr.getSensor(name2), sensor_ptr2);
+    mgr->addSensor(type, name1, std::move(sensor1));
+    EXPECT_EQ(mgr->getSensor(name1), sensor_ptr1);
+    mgr->addSensor(type, name2, std::move(sensor2));
+    EXPECT_EQ(mgr->getSensor(name2), sensor_ptr2);
 
     // Now that the sensors exist, add them to the zone.
     zone->addFanInput(name1, false);
@@ -770,13 +782,13 @@ TEST_F(PidZoneTest, GetSensorTest_ReturnsExpected)
     SensorMock* sensor_ptr1 = reinterpret_cast<SensorMock*>(sensor1.get());
 
     std::string type = "unchecked";
-    mgr.addSensor(type, name1, std::move(sensor1));
-    EXPECT_EQ(mgr.getSensor(name1), sensor_ptr1);
+    mgr->addSensor(type, name1, std::move(sensor1));
+    EXPECT_EQ(mgr->getSensor(name1), sensor_ptr1);
 
     zone->addThermalInput(name1, false);
 
     // Verify method under test returns the pointer we expect.
-    EXPECT_EQ(mgr.getSensor(name1), zone->getSensor(name1));
+    EXPECT_EQ(mgr->getSensor(name1), zone->getSensor(name1));
 }
 
 TEST_F(PidZoneTest, AddThermalPIDTest_VerifiesThermalPIDsProcessed)
@@ -832,9 +844,9 @@ TEST_F(PidZoneTest, ManualModeDbusTest_VerifySetManualBehavesAsExpected)
 
     // Verifies that someone doesn't remove the internal call to the dbus
     // object from which we're inheriting.
-    EXPECT_CALL(sdbus_mock_mode,
-                sd_bus_emit_properties_changed_strv(
-                    IsNull(), StrEq(objPath), StrEq(modeInterface), NotNull()))
+    EXPECT_CALL(sdbus_mock_mode, sd_bus_emit_properties_changed_strv(
+                                     IsNull(), StrEq(objPath),
+                                     StrEq(ControlMode::interface), NotNull()))
         .WillOnce(Invoke(
             [&]([[maybe_unused]] sd_bus* bus, [[maybe_unused]] const char* path,
                 [[maybe_unused]] const char* interface, const char** names) {

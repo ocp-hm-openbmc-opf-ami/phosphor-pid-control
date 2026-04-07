@@ -1,39 +1,31 @@
-/**
- * Copyright 2017 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright 2017 Google Inc
 
 /* Configuration. */
 #include "zone.hpp"
 
 #include "conf.hpp"
 #include "failsafeloggers/failsafe_logger_utility.hpp"
+#include "interfaces.hpp"
 #include "pid/controller.hpp"
-#include "pid/ec/pid.hpp"
-#include "pid/fancontroller.hpp"
-#include "pid/stepwisecontroller.hpp"
-#include "pid/thermalcontroller.hpp"
 #include "pid/tuning.hpp"
+
+#include <sdbusplus/bus.hpp>
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
+#include <exception>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 using tstamp = std::chrono::steady_clock::time_point;
 using namespace std::literals::chrono_literals;
@@ -127,6 +119,9 @@ void DbusPidZone::markSensorMissing(const std::string& name,
             std::pair(failReason, _sensorFailSafePercent[name]);
     }
 
+    outputFailsafeLogWithZone(_zoneId, this->getFailSafeMode(), name,
+                              "The sensor is missing.");
+
     if (debugEnabled)
     {
         std::cerr << "Sensor " << name << " marked missing\n";
@@ -156,14 +151,14 @@ void DbusPidZone::addSetPoint(double setPoint, const std::string& name)
          * If the name of controller is Linear_Temp_CPU0.
          * The profile name will be Temp_CPU0.
          */
-        profileName = name.substr(name.find("_") + 1);
-        _SetPoints[profileName] += setPoint;
+        profileName = name.substr(name.find('_') + 1);
+        setPoints[profileName] += setPoint;
     }
     else
     {
-        if (_SetPoints[profileName] < setPoint)
+        if (setPoints[profileName] < setPoint)
         {
-            _SetPoints[profileName] = setPoint;
+            setPoints[profileName] = setPoint;
         }
     }
 
@@ -171,7 +166,7 @@ void DbusPidZone::addSetPoint(double setPoint, const std::string& name)
      * if there are multiple thermal controllers with the same
      * value, pick the first one in the iterator
      */
-    if (_maximumSetPoint < _SetPoints[profileName])
+    if (_maximumSetPoint < setPoints[profileName])
     {
         if (setPoint < oem_setpoint)
         {
@@ -187,42 +182,45 @@ void DbusPidZone::addSetPoint(double setPoint, const std::string& name)
 
 void DbusPidZone::addRPMCeiling(double ceiling)
 {
-    _RPMCeilings.push_back(ceiling);
+    rpmCeilings.push_back(ceiling);
 }
 
 void DbusPidZone::clearRPMCeilings(void)
 {
-    _RPMCeilings.clear();
+    rpmCeilings.clear();
 }
 
 void DbusPidZone::clearSetPoints(void)
 {
-    _SetPoints.clear();
+    setPoints.clear();
     _maximumSetPoint = 0;
     _maximumSetPointName.clear();
 }
 
 double DbusPidZone::getFailSafePercent(void)
 {
+    if (_failSafeSensors.empty())
+    {
+        return _zoneFailSafePercent;
+    }
+
     FailSafeSensorsMap::iterator maxData = std::max_element(
         _failSafeSensors.begin(), _failSafeSensors.end(),
-        [](const FailSafeSensorPair firstData,
-           const FailSafeSensorPair secondData) {
+        [](const FailSafeSensorPair& firstData,
+           const FailSafeSensorPair& secondData) {
             return firstData.second.second < secondData.second.second;
         });
 
     // In dbus/dbusconfiguration.cpp, the default sensor failsafepercent is 0 if
     // there is no setting in json.
-    // Therfore, if the max failsafe duty in _failSafeSensors is 0, set final
+    // Therefore, if the max failsafe duty in _failSafeSensors is 0, set final
     // failsafe duty to _zoneFailSafePercent.
     if ((*maxData).second.second == 0)
     {
         return _zoneFailSafePercent;
     }
-    else
-    {
-        return (*maxData).second.second;
-    }
+
+    return (*maxData).second.second;
 }
 
 double DbusPidZone::getMinThermalSetPoint(void) const
@@ -353,9 +351,9 @@ void DbusPidZone::determineMaxSetPointRequest(void)
     std::vector<double>::iterator result;
     double minThermalThreshold = getMinThermalSetPoint();
 
-    if (_RPMCeilings.size() > 0)
+    if (rpmCeilings.size() > 0)
     {
-        result = std::min_element(_RPMCeilings.begin(), _RPMCeilings.end());
+        result = std::min_element(rpmCeilings.begin(), rpmCeilings.end());
         // if Max set point is larger than the lowest ceiling, reset to lowest
         // ceiling.
         if (*result < _maximumSetPoint)
@@ -663,12 +661,12 @@ void DbusPidZone::addPidControlProcess(std::string name, std::string type,
     }
 }
 
-bool DbusPidZone::isPidProcessEnabled(std::string name)
+bool DbusPidZone::isPidProcessEnabled(const std::string& name)
 {
     return _pidsControlProcess[name]->enabled();
 }
 
-void DbusPidZone::addPidFailSafePercent(std::vector<std::string> inputs,
+void DbusPidZone::addPidFailSafePercent(const std::vector<std::string>& inputs,
                                         double percent)
 {
     for (const auto& sensorName : inputs)

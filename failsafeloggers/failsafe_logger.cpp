@@ -1,14 +1,16 @@
 #include "failsafe_logger.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <iostream>
+#include <string>
 
 namespace pid_control
 {
 
 void FailsafeLogger::outputFailsafeLog(
     const int64_t zoneId, const bool newFailsafeState,
-    const std::string location, const std::string reason)
+    const std::string& location, const std::string& reason)
 {
     // Remove outdated log entries.
     const auto now = std::chrono::high_resolution_clock::now();
@@ -34,7 +36,7 @@ void FailsafeLogger::outputFailsafeLog(
     // already encountered in the current state.
     std::string locationReason = location + " @ " + reason;
     if (_logTimestamps.size() >= _logMaxCountPerSecond ||
-        !_logsInCurrentState.contains(locationReason))
+        _logsInCurrentState.contains(locationReason))
     {
         return;
     }

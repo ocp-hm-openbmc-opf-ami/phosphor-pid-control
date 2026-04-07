@@ -1,38 +1,25 @@
-/**
- * Copyright 2017 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright 2017 Google Inc
 
 #include "pidloop.hpp"
 
 #include "pid/pidcontroller.hpp"
 #include "pid/tuning.hpp"
 #include "pid/zone_interface.hpp"
-#include "sensors/sensor.hpp"
 
+#include <boost/asio/error.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 #include <chrono>
-#include <map>
+#include <cstdint>
 #include <memory>
+#include <ostream>
 #include <sstream>
-#include <vector>
 
 namespace pid_control
 {
 
-static void processThermals(std::shared_ptr<ZoneInterface> zone)
+static void processThermals(const std::shared_ptr<ZoneInterface>& zone)
 {
     // Get the latest margins.
     zone->updateSensors();
@@ -45,12 +32,14 @@ static void processThermals(std::shared_ptr<ZoneInterface> zone)
     zone->determineMaxSetPointRequest();
 }
 
-void pidControlLoop(std::shared_ptr<ZoneInterface> zone,
-                    std::shared_ptr<boost::asio::steady_timer> timer,
+void pidControlLoop(const std::shared_ptr<ZoneInterface>& zone,
+                    const std::shared_ptr<boost::asio::steady_timer>& timer,
                     const bool* isCanceling, bool first, uint64_t cycleCnt)
 {
     if (*isCanceling)
+    {
         return;
+    }
 
     std::chrono::steady_clock::time_point nextTime;
 
