@@ -174,7 +174,7 @@ void DbusPidZone::addSetPoint(double setPoint, const std::string& name)
         }
         else
         {
-            _maximumSetPoint = _SetPoints[profileName];
+            _maximumSetPoint = setPoints[profileName];
             _maximumSetPointName = profileName;
         }
     }
@@ -631,9 +631,10 @@ bool DbusPidZone::forceFailSafe(bool modeStatus)
     return true;
 }
 
-void DbusPidZone::addPidControlProcess(std::string name, std::string type,
+void DbusPidZone::addPidControlProcess(const std::string& name,
+                                       const std::string& type,
                                        double setpoint, sdbusplus::bus_t& bus,
-                                       std::string objPath, bool defer)
+                                       const std::string& objPath, bool defer)
 {
     _pidsControlProcess[name] = std::make_unique<ProcessObject>(
         bus, objPath.c_str(),

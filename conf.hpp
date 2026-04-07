@@ -15,6 +15,8 @@ namespace pid_control
 namespace conf
 {
 
+inline constexpr bool DEBUG = false;
+
 /*
  * General sensor structure used for configuration.
  */

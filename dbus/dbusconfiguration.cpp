@@ -262,7 +262,7 @@ void createMatches(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer)
         return;
     }
 
-    // we restart when the configuration changes or there are new sensors
+    // We restart when configuration changes or new sensors.
     for (const auto& interface : interfaces)
     {
         matches.emplace_back(
@@ -380,18 +380,13 @@ void populatePidInfo(
         // named threshold, it is OK, because the SetPointOffset parser
         // splits up the input into individual vectors, each with only a
         // single element, if it detects that SetPointOffset is in use.
-        const std::string& path =
-            sensorConfig.at(info.inputs.front().name).readPath;
-
-        DbusHelper helper(bus);
-        std::string service = helper.getService(interface, path);
-        double reading = 0;
+	double reading = 0;
         try
         {
-            const std::string& path =
+		 const std::string& path =
                 sensorConfig.at(info.inputs.front().name).readPath;
 
-            DbusHelper helper(sdbusplus::bus::new_system());
+            DbusHelper helper(bus);
             std::string service = helper.getService(interface, path);
 
             helper.getProperty(service, path, interface, *thresholdProperty,

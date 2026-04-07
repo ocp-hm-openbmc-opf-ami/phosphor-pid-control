@@ -450,12 +450,6 @@ int handleSensorValue(sdbusplus::message_t& msg, DbusPassive* owner)
         asserted |= (criticalAlarmHigh != msgData.end())
                         ? std::get<bool>(criticalAlarmHigh->second)
                         : asserted;
-        asserted |= (NonRecoverableAlarmLow != msgData.end())
-                        ? std::get<bool>(NonRecoverableAlarmLow->second)
-                        : asserted;
-        asserted |= (NonRecoverableAlarmHigh != msgData.end())
-                        ? std::get<bool>(NonRecoverableAlarmHigh->second)
-                        : asserted;
 
         owner->setFailed(asserted);
     }
