@@ -67,11 +67,18 @@ void pidControlLoop(const std::shared_ptr<ZoneInterface>& zone,
     // is of the expected duration, and not stretched out by CPU time taken.
     nextTime += std::chrono::milliseconds(msPerFanCycle);
     timer->expires_at(nextTime);
-    timer->async_wait([zone, timer, cycleCnt, isCanceling, msPerFanCycle](
+    std::weak_ptr<ZoneInterface> weakZone = zone;
+    timer->async_wait([weakZone, timer, cycleCnt, isCanceling, msPerFanCycle](
                           const boost::system::error_code& ec) mutable {
         if (ec == boost::asio::error::operation_aborted)
         {
             return; // timer being canceled, stop loop
+        }
+
+	auto zone = weakZone.lock();
+        if (!zone)
+        {
+            return;
         }
 
         /*
