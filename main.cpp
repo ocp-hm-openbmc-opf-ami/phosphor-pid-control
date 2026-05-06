@@ -1,18 +1,5 @@
-/**
- * Copyright 2017 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright 2017 Google Inc
 
 #include "config.h"
 
@@ -20,19 +7,23 @@
 #include "conf.hpp"
 #include "dbus/dbusconfiguration.hpp"
 #include "failsafeloggers/builder.hpp"
-#include "interfaces.hpp"
+#include "hoststatemonitor.hpp"
 #include "pid/builder.hpp"
 #include "pid/buildjson.hpp"
 #include "pid/pidloop.hpp"
 #include "pid/tuning.hpp"
-#include "pid/zone.hpp"
 #include "sensors/builder.hpp"
 #include "sensors/buildjson.hpp"
 #include "sensors/manager.hpp"
 #include "util.hpp"
+#include "zone_interface.hpp"
+
+#include <signal.h>
 
 #include <CLI/CLI.hpp>
+#include <boost/asio/error.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <sdbusplus/asio/connection.hpp>
@@ -40,11 +31,19 @@
 #include <sdbusplus/server/manager.hpp>
 
 #include <chrono>
+#include <csignal>
+#include <cstdint>
+#include <cstdlib>
+#include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
-#include <list>
 #include <map>
 #include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -68,7 +67,7 @@ static std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> zones;
 /* The timers used by the PID loop */
 static std::vector<std::shared_ptr<boost::asio::steady_timer>> timers;
 /* The sensors build from configuration */
-static SensorManager mgmr;
+static std::optional<SensorManager> mgmr;
 } // namespace state
 
 } // namespace pid_control
@@ -82,10 +81,9 @@ boost::asio::signal_set signals(io, SIGHUP, SIGTERM);
 
 /* buses for system control */
 static sdbusplus::asio::connection modeControlBus(io);
-static sdbusplus::asio::connection hostBus(
-    io, sdbusplus::bus::new_system().release());
-static sdbusplus::asio::connection passiveBus(
-    io, sdbusplus::bus::new_system().release());
+static sdbusplus::asio::connection hostBus(io, sdbusplus::bus::new_bus());
+static sdbusplus::asio::connection passiveBus(io, sdbusplus::bus::new_bus());
+static sdbusplus::asio::connection hostMatchBus(io, sdbusplus::bus::new_bus());
 
 namespace pid_control
 {
@@ -94,9 +92,9 @@ std::filesystem::path searchConfigurationPath()
 {
     static constexpr auto name = "config.json";
 
-    for (auto pathSeg : {std::filesystem::current_path(),
-                         std::filesystem::path{"/var/lib/swampd"},
-                         std::filesystem::path{"/usr/share/swampd"}})
+    for (const auto& pathSeg : {std::filesystem::current_path(),
+                                std::filesystem::path{"/var/lib/swampd"},
+                                std::filesystem::path{"/usr/share/swampd"}})
     {
         auto file = pathSeg / name;
         if (std::filesystem::exists(file))
@@ -170,7 +168,7 @@ void restartControlLoops()
 
     state::mgmr = buildSensors(sensorConfig, passiveBus, hostBus);
     state::zones =
-        buildZones(zoneConfig, zoneDetailsConfig, state::mgmr, modeControlBus);
+        buildZones(zoneConfig, zoneDetailsConfig, *state::mgmr, modeControlBus);
     // Set `logMaxCountPerSecond` to 20 will limit the number of logs output per
     // second in each zone. Using 20 here would limit the output rate to be no
     // larger than 100 per sec for most platforms as the number of zones are
@@ -232,8 +230,9 @@ void tryRestartControlLoops(bool first)
         // first can be called because new config is detected
         // while waiting for the retry timer
         timer.cancel();
-        boost::asio::post(io,
-                          std::bind(restartLbd, boost::system::error_code()));
+        boost::asio::post(io, [restartLbd] {
+            restartLbd(boost::system::error_code());
+        });
     }
     // re-try control loop, set up a delay.
     else
@@ -277,7 +276,8 @@ void tryTerminateControlLoops(bool first)
     // first time of trying to stop the control loop without a delay
     if (first)
     {
-        boost::asio::post(io, std::bind(stopLbd, boost::system::error_code()));
+        boost::asio::post(io,
+                          [stopLbd] { stopLbd(boost::system::error_code()); });
     }
     // re-try control loop, set up a delay.
     else
@@ -421,8 +421,8 @@ int main(int argc, char* argv[])
 
     static constexpr auto modeRoot = "/xyz/openbmc_project/settings/fanctrl";
     // Create a manager for the ModeBus because we own it.
-    sdbusplus::server::manager_t(static_cast<sdbusplus::bus_t&>(modeControlBus),
-                                 modeRoot);
+    sdbusplus::server::manager_t manager(
+        static_cast<sdbusplus::bus_t&>(modeControlBus), modeRoot);
     hostBus.request_name("xyz.openbmc_project.Hwmon.external");
     modeControlBus.request_name("xyz.openbmc_project.State.FanCtrl");
     sdbusplus::server::manager_t objManager(modeControlBus, modeRoot);
@@ -436,6 +436,10 @@ int main(int argc, char* argv[])
      */
 
     pid_control::tryRestartControlLoops();
+
+    /* setup host state monitor */
+    auto& monitor = HostStateMonitor::getInstance(hostMatchBus);
+    monitor.startMonitoring();
 
     io.run();
     return 0;

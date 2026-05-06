@@ -1,29 +1,18 @@
-/**
- * Copyright 2017 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright 2017 Google Inc
 
 #include <iostream>
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 
 /* Configuration. */
 #include "conf.hpp"
 #include "dbus/dbushelper.hpp"
 #include "dbus/dbuspassive.hpp"
 #include "dbus/dbuswrite.hpp"
+#include "dbuspassiveredundancy.hpp"
 #include "errors/exception.hpp"
 #include "interfaces.hpp"
 #include "notimpl/readonly.hpp"
@@ -35,7 +24,8 @@
 #include "sensors/pluggable.hpp"
 #include "sysfs/sysfsread.hpp"
 #include "sysfs/sysfswrite.hpp"
-#include "util.hpp"
+
+#include <sdbusplus/bus.hpp>
 
 namespace pid_control
 {
@@ -45,7 +35,7 @@ static constexpr bool deferSignals = true;
 SensorManager buildSensors(std::map<std::string, conf::SensorConfig>& config,
                            sdbusplus::bus_t& passive, sdbusplus::bus_t& host)
 {
-    SensorManager mgmr(passive, host);
+    SensorManager mgmr{passive, host};
     auto& hostSensorBus = mgmr.getHostBus();
     auto& passiveListeningBus = mgmr.getPassiveBus();
 
@@ -88,17 +78,15 @@ SensorManager buildSensors(std::map<std::string, conf::SensorConfig>& config,
                 {
                     ri = DbusPassive::createDbusPassive(
                         passiveListeningBus, info->type, name,
-                        std::make_unique<DbusHelper>(
-                            sdbusplus::bus::new_system()),
-                        info, redundancy);
+                        std::make_unique<DbusHelper>(passiveListeningBus), info,
+                        redundancy);
                 }
                 else
                 {
                     ri = DbusPassive::createDbusPassive(
                         passiveListeningBus, info->type, name,
-                        std::make_unique<DbusHelper>(
-                            sdbusplus::bus::new_system()),
-                        info, nullptr);
+                        std::make_unique<DbusHelper>(passiveListeningBus), info,
+                        nullptr);
                 }
                 if (ri == nullptr)
                 {
@@ -145,15 +133,13 @@ SensorManager buildSensors(std::map<std::string, conf::SensorConfig>& config,
                     {
                         wi = DbusWritePercent::createDbusWrite(
                             info->writePath, info->min, info->max,
-                            std::make_unique<DbusHelper>(
-                                sdbusplus::bus::new_system()));
+                            std::make_unique<DbusHelper>(passiveListeningBus));
                     }
                     else
                     {
                         wi = DbusWrite::createDbusWrite(
                             info->writePath, info->min, info->max,
-                            std::make_unique<DbusHelper>(
-                                sdbusplus::bus::new_system()));
+                            std::make_unique<DbusHelper>(passiveListeningBus));
                     }
 
                     if (wi == nullptr)
@@ -175,7 +161,8 @@ SensorManager buildSensors(std::map<std::string, conf::SensorConfig>& config,
             }
 
             auto sensor = std::make_unique<PluggableSensor>(
-                name, info->timeout, std::move(ri), std::move(wi));
+                name, info->timeout, std::move(ri), std::move(wi),
+                info->ignoreFailIfHostOff);
             mgmr.addSensor(info->type, name, std::move(sensor));
         }
         else if (info->type == "temp" || info->type == "margin" ||
@@ -209,7 +196,8 @@ SensorManager buildSensors(std::map<std::string, conf::SensorConfig>& config,
             {
                 wi = std::make_unique<ReadOnlyNoExcept>();
                 auto sensor = std::make_unique<PluggableSensor>(
-                    name, info->timeout, std::move(ri), std::move(wi));
+                    name, info->timeout, std::move(ri), std::move(wi),
+                    info->ignoreFailIfHostOff);
                 mgmr.addSensor(info->type, name, std::move(sensor));
             }
         }

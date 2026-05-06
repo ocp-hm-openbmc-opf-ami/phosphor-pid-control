@@ -1,6 +1,9 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
+#include <limits>
+#include <string>
 
 namespace pid_control
 {
@@ -34,9 +37,9 @@ struct ValueCacheEntry
 class ReadInterface
 {
   public:
-    ReadInterface() {}
+    ReadInterface() = default;
 
-    virtual ~ReadInterface() {}
+    virtual ~ReadInterface() = default;
 
     virtual ReadReturn read(void) = 0;
 
@@ -60,7 +63,7 @@ class WriteInterface
   public:
     WriteInterface(int64_t min, int64_t max) : _min(min), _max(max) {}
 
-    virtual ~WriteInterface() {}
+    virtual ~WriteInterface() = default;
 
     virtual void write(double value) = 0;
 

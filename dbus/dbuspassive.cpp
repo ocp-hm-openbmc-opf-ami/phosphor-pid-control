@@ -1,39 +1,52 @@
-/**
- * Copyright 2017 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright 2017 Google Inc
+
 #include "config.h"
 
 #include "dbuspassive.hpp"
 
+#include "conf.hpp"
 #include "dbushelper_interface.hpp"
 #include "dbuspassiveredundancy.hpp"
 #include "dbusutil.hpp"
-#include "failsafeloggers/builder.hpp"
 #include "failsafeloggers/failsafe_logger_utility.hpp"
+#include "interfaces.hpp"
 #include "util.hpp"
 
+#include <systemd/sd-bus.h>
+
 #include <sdbusplus/bus.hpp>
+#include <sdbusplus/message.hpp>
+#include <xyz/openbmc_project/Sensor/Threshold/Critical/common.hpp>
+#include <xyz/openbmc_project/Sensor/Threshold/Warning/common.hpp>
+#include <xyz/openbmc_project/Sensor/Value/client.hpp>
+#include <xyz/openbmc_project/State/Decorator/Availability/common.hpp>
+#include <xyz/openbmc_project/State/Decorator/OperationalStatus/common.hpp>
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <exception>
+#include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
+#include <utility>
 #include <variant>
 
 #include "failsafeloggers/failsafe_logger.cpp"
+
+using SensorValue = sdbusplus::common::xyz::openbmc_project::sensor::Value;
+using SensorThresholdWarning =
+    sdbusplus::common::xyz::openbmc_project::sensor::threshold::Warning;
+using SensorThresholdCritical =
+    sdbusplus::common::xyz::openbmc_project::sensor::threshold::Critical;
+using StateDecoratorAvailability =
+    sdbusplus::common::xyz::openbmc_project::state::decorator::Availability;
+using StateDecoratorOperationalStatus = sdbusplus::common::xyz::
+    openbmc_project::state::decorator::OperationalStatus;
 
 namespace pid_control
 {
@@ -66,49 +79,64 @@ std::unique_ptr<ReadInterface> DbusPassive::createDbusPassive(
 
     SensorProperties settings;
     bool failed;
+    bool objectMissing = false;
+    std::string service;
 
     try
     {
-        std::string service = helper->getService(sensorintf, path);
-
-        helper->getProperties(service, path, &settings);
-        failed = helper->thresholdsAsserted(service, path);
+        service = helper->getService(SensorValue::interface, path);
     }
     catch (const std::exception& e)
     {
-#ifndef HANDLE_MISSING_OBJECT_PATHS
-        return nullptr;
-#else
+        if constexpr (!HANDLE_MISSING_OBJECT_PATHS)
+        {
+            return nullptr;
+        }
         // CASE1: The sensor is not on DBus, but as it is not in the
         // MissingIsAcceptable list, the sensor should be built with a failed
         // state to send the zone to failsafe mode. Everything will recover if
         // all important sensors are back to DBus. swampd will be informed
         // through InterfacesAdded signals and the sensors will be built again.
 
-        // CASE2: The sensor is in the MissingIsAcceptable list and it EXISTS on
-        // DBus (which sends it all the way here). However, swampd fails to
-        // initialize its setting here because of some DBus error???
-        // (getService/getProperties/getThresholdAssertion). Build it as a
-        // failed sensor too. A DBus signal will inform if there's s new
-        // property value to the sensor and will recover its state when the new
-        // value is valid.
+        // CASE2: The sensor is on D-Bus (getService succeeds) but getProperties
+        // fails (e.g., D-Bus error or property fetch failure). In this case,
+        // handle-missing-object-paths does not apply. The sensor build fails,
+        // and the control loop will keep restarting until getProperties
+        // succeeds.
 
-        // In both cases, the Sensor::getFailed() and
-        // DbusPidZone::markSensorMissing() APIs will decide whether to add a
-        // failed sensor to the _failSafeSensors list. As _failed=true,
-        // _available=false and _badReading=false (due to updateValue(nan,
-        // true)), both cases will have getFailed()=true at the beginning as
-        // long as _unavailableAsFailed=true; However as CASE2 has the sensor in
-        // MissingIsAcceptable list, only CASE1 will send the zone to failSafe
-        // mode.
-
+        // Only CASE1 may send the zone to failsafe mode if the sensor is not
+        // in MissingIsAcceptable. CASE2 results in continuous restart until
+        // recovery.
+        objectMissing = true;
+        auto sensor = std::make_unique<DbusPassive>(
+            bus, type, id, std::move(helper), objectMissing, path, redundancy);
         failed = true;
         settings.value = std::numeric_limits<double>::quiet_NaN();
         settings.unit = getSensorUnit(type);
         settings.available = false;
+        settings.unavailableAsFailed = true;
+        if (info->ignoreDbusMinMax)
+        {
+            settings.min = 0;
+            settings.max = 0;
+        }
+        sensor->initFromSettings(settings, true);
         std::cerr << "DbusPassive: Sensor " << path
                   << " is missing from D-Bus, build this sensor as failed\n";
-#endif
+        return sensor;
+    }
+
+    auto sensor = std::make_unique<DbusPassive>(
+        bus, type, id, std::move(helper), objectMissing, path, redundancy);
+
+    try
+    {
+        sensor->_helper->getProperties(service, path, &settings);
+        failed = sensor->_helper->thresholdsAsserted(service, path);
+    }
+    catch (const std::exception& e)
+    {
+        return nullptr;
     }
 
     /* if these values are zero, they're ignored. */
@@ -119,33 +147,24 @@ std::unique_ptr<ReadInterface> DbusPassive::createDbusPassive(
     }
 
     settings.unavailableAsFailed = info->unavailableAsFailed;
+    sensor->initFromSettings(settings, failed);
 
-    return std::make_unique<DbusPassive>(bus, type, id, std::move(helper),
-                                         settings, failed, path, redundancy);
+    return sensor;
 }
 
 DbusPassive::DbusPassive(
     sdbusplus::bus_t& bus, const std::string& type, const std::string& id,
-    std::unique_ptr<DbusHelperInterface> helper,
-    const SensorProperties& settings, bool failed, const std::string& path,
+    std::unique_ptr<DbusHelperInterface> helper, bool objectMissing,
+    const std::string& path,
     const std::shared_ptr<DbusPassiveRedundancy>& redundancy) :
     ReadInterface(), _signal(bus, getMatch(path), dbusHandleSignal, this),
-    _id(id), _helper(std::move(helper)), _failed(failed), path(path),
-    redundancy(redundancy)
+    _id(id), _helper(std::move(helper)), _objectMissing(objectMissing),
+    path(path), redundancy(redundancy)
 
 {
-    _scale = settings.scale;
-    _min = settings.min * std::pow(10.0, _scale);
-    _max = settings.max * std::pow(10.0, _scale);
-    _available = settings.available;
-    _unavailableAsFailed = settings.unavailableAsFailed;
-
     // Cache this type knowledge, to avoid repeated string comparison
     _typeMargin = (type == "margin");
     _typeFan = (type == "fan");
-
-    // Force value to be stored, otherwise member would be uninitialized
-    updateValue(settings.value, true);
 }
 
 ReadReturn DbusPassive::read(void)
@@ -183,6 +202,18 @@ bool DbusPassive::getFailed(void) const
                                         "The sensor path is marked redundant.");
             return true;
         }
+    }
+
+    /*
+     * If handle-missing-object-paths is enabled, and the expected D-Bus object
+     * path is not exported, this sensor is created to represent that condition.
+     * Indicate this sensor has failed so the zone enters failSafe mode.
+     */
+    if (_objectMissing)
+    {
+        outputFailsafeLogWithSensor(_id, true, _id,
+                                    "The sensor D-Bus object is missing.");
+        return true;
     }
 
     /*
@@ -250,6 +281,10 @@ bool DbusPassive::getFailed(void) const
 
 std::string DbusPassive::getFailReason(void) const
 {
+    if (_objectMissing)
+    {
+        return "Sensor D-Bus object missing";
+    }
     if (_badReading)
     {
         return "Sensor reading bad";
@@ -286,6 +321,29 @@ void DbusPassive::setFunctional(bool value)
 void DbusPassive::setAvailable(bool value)
 {
     _available = value;
+    _availableOverridden = true;
+}
+
+void DbusPassive::initFromSettings(const SensorProperties& settings,
+                                   bool failed)
+{
+    _failed = failed;
+    _scale = settings.scale;
+    _min = settings.min * std::pow(10.0, _scale);
+    _max = settings.max * std::pow(10.0, _scale);
+    _unavailableAsFailed = settings.unavailableAsFailed;
+    setAvailableFromProperty(settings.available);
+
+    // Force value to be stored, otherwise member would be uninitialized
+    updateValue(settings.value, true);
+}
+
+void DbusPassive::setAvailableFromProperty(bool value)
+{
+    if (!_availableOverridden)
+    {
+        _available = value;
+    }
 }
 
 int64_t DbusPassive::getScale(void)
@@ -361,9 +419,9 @@ int handleSensorValue(sdbusplus::message_t& msg, DbusPassive* owner)
 
     msg.read(msgSensor, msgData);
 
-    if (msgSensor == "xyz.openbmc_project.Sensor.Value")
+    if (msgSensor == SensorValue::interface)
     {
-        auto valPropMap = msgData.find("Value");
+        auto valPropMap = msgData.find(SensorValue::property_names::value);
         if (valPropMap != msgData.end())
         {
             double value =
@@ -372,20 +430,14 @@ int handleSensorValue(sdbusplus::message_t& msg, DbusPassive* owner)
             owner->updateValue(value, false);
         }
     }
-    else if ((msgSensor == "xyz.openbmc_project.Sensor.Threshold.Critical") ||
-             (msgSensor ==
-              "xyz.openbmc_project.Sensor.Threshold.NonRecoverable"))
+    else if (msgSensor == SensorThresholdCritical::interface)
     {
-        auto criticalAlarmLow = msgData.find("CriticalAlarmLow");
-        auto criticalAlarmHigh = msgData.find("CriticalAlarmHigh");
-
-        auto NonRecoverableAlarmLow = msgData.find("NonRecoverableAlarmLow");
-        auto NonRecoverableAlarmHigh = msgData.find("NonRecoverableAlarmHigh");
-
-        if ((criticalAlarmHigh == msgData.end() &&
-             criticalAlarmLow == msgData.end()) &&
-            (NonRecoverableAlarmHigh == msgData.end() &&
-             NonRecoverableAlarmLow == msgData.end()))
+        auto criticalAlarmLow = msgData.find(
+            SensorThresholdCritical::property_names::critical_alarm_low);
+        auto criticalAlarmHigh = msgData.find(
+            SensorThresholdCritical::property_names::critical_alarm_high);
+        if (criticalAlarmHigh == msgData.end() &&
+            criticalAlarmLow == msgData.end())
         {
             return 0;
         }
@@ -398,19 +450,13 @@ int handleSensorValue(sdbusplus::message_t& msg, DbusPassive* owner)
         asserted |= (criticalAlarmHigh != msgData.end())
                         ? std::get<bool>(criticalAlarmHigh->second)
                         : asserted;
-        asserted |= (NonRecoverableAlarmLow != msgData.end())
-                        ? std::get<bool>(NonRecoverableAlarmLow->second)
-                        : asserted;
-        asserted |= (NonRecoverableAlarmHigh != msgData.end())
-                        ? std::get<bool>(NonRecoverableAlarmHigh->second)
-                        : asserted;
 
         owner->setFailed(asserted);
     }
-#ifdef UNC_FAILSAFE
-    else if (msgSensor == "xyz.openbmc_project.Sensor.Threshold.Warning")
+    else if (UNC_FAILSAFE && msgSensor == SensorThresholdWarning::interface)
     {
-        auto warningAlarmHigh = msgData.find("WarningAlarmHigh");
+        auto warningAlarmHigh = msgData.find(
+            SensorThresholdWarning::property_names::warning_alarm_high);
         if (warningAlarmHigh == msgData.end())
         {
             return 0;
@@ -423,10 +469,10 @@ int handleSensorValue(sdbusplus::message_t& msg, DbusPassive* owner)
         }
         owner->setFailed(asserted);
     }
-#endif
-    else if (msgSensor == "xyz.openbmc_project.State.Decorator.Availability")
+    else if (msgSensor == StateDecoratorAvailability::interface)
     {
-        auto available = msgData.find("Available");
+        auto available =
+            msgData.find(StateDecoratorAvailability::property_names::available);
         if (available == msgData.end())
         {
             return 0;
@@ -442,10 +488,10 @@ int handleSensorValue(sdbusplus::message_t& msg, DbusPassive* owner)
             owner->updateValue(std::numeric_limits<double>::quiet_NaN(), true);
         }
     }
-    else if (msgSensor ==
-             "xyz.openbmc_project.State.Decorator.OperationalStatus")
+    else if (msgSensor == StateDecoratorOperationalStatus::interface)
     {
-        auto functional = msgData.find("Functional");
+        auto functional = msgData.find(
+            StateDecoratorOperationalStatus::property_names::functional);
         if (functional == msgData.end())
         {
             return 0;

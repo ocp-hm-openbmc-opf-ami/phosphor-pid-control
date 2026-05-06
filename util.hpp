@@ -3,13 +3,11 @@
 #include "conf.hpp"
 #include "pid/ec/pid.hpp"
 
-#include <phosphor-logging/log.hpp>
-#include <sdbusplus/bus.hpp>
-
 #include <cstdint>
 #include <limits>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace pid_control
 {
@@ -29,11 +27,6 @@ struct SensorThresholds
     double lowerThreshold = std::numeric_limits<double>::quiet_NaN();
     double upperThreshold = std::numeric_limits<double>::quiet_NaN();
 };
-
-const std::string sensorintf = "xyz.openbmc_project.Sensor.Value";
-const std::string criticalThreshInf =
-    "xyz.openbmc_project.Sensor.Threshold.Critical";
-const std::string propertiesintf = "org.freedesktop.DBus.Properties";
 
 /*
  * Given a path that optionally has a glob portion, fill it out.

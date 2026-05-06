@@ -5,16 +5,14 @@
 #include <cstdint>
 #include <string>
 
-namespace pid_control
-{
-namespace ipmi
+namespace pid_control::ipmi
 {
 
 class DbusZoneControl : public ZoneControlInterface
 {
   public:
     DbusZoneControl() = default;
-    ~DbusZoneControl() = default;
+    ~DbusZoneControl() override = default;
 
     /*
      * busctl call xyz.openbmc_project.State.FanCtrl \
@@ -36,5 +34,4 @@ class DbusZoneControl : public ZoneControlInterface
                                const std::string& property) override;
 };
 
-} // namespace ipmi
-} // namespace pid_control
+} // namespace pid_control::ipmi

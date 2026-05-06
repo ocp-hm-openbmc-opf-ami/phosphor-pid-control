@@ -20,21 +20,54 @@
 #include "conf.hpp"
 #include "dbushelper.hpp"
 #include "dbusutil.hpp"
+#include "ec/stepwise.hpp"
+#include "tuning.hpp"
 #include "util.hpp"
 
+#include <systemd/sd-bus.h>
+
+#include <boost/asio/error.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <sdbusplus/bus.hpp>
 #include <sdbusplus/bus/match.hpp>
 #include <sdbusplus/exception.hpp>
+#include <sdbusplus/message.hpp>
+#include <sdbusplus/message/native_types.hpp>
+#include <xyz/openbmc_project/Association/Definitions/common.hpp>
+#include <xyz/openbmc_project/Association/common.hpp>
+#include <xyz/openbmc_project/Control/FanPwm/client.hpp>
+#include <xyz/openbmc_project/Control/ThermalMode/common.hpp>
+#include <xyz/openbmc_project/ObjectMapper/common.hpp>
+#include <xyz/openbmc_project/Sensor/Threshold/Critical/common.hpp>
+#include <xyz/openbmc_project/Sensor/Threshold/Warning/common.hpp>
+#include <xyz/openbmc_project/Sensor/Value/client.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
-#include <functional>
+#include <cstdint>
+#include <format>
 #include <iostream>
+#include <limits>
 #include <list>
-#include <set>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <variant>
+#include <vector>
+
+using ObjectMapper = sdbusplus::common::xyz::openbmc_project::ObjectMapper;
+using SensorValue = sdbusplus::common::xyz::openbmc_project::sensor::Value;
+using ControlFanPwm = sdbusplus::common::xyz::openbmc_project::control::FanPwm;
+using ControlThermalMode =
+    sdbusplus::common::xyz::openbmc_project::control::ThermalMode;
+using SensorThresholdWarning =
+    sdbusplus::common::xyz::openbmc_project::sensor::threshold::Warning;
+using SensorThresholdCritical =
+    sdbusplus::common::xyz::openbmc_project::sensor::threshold::Critical;
 
 namespace pid_control
 {
@@ -47,21 +80,12 @@ constexpr const char* pidZoneConfigurationInterface =
     "xyz.openbmc_project.Configuration.Pid.Zone";
 constexpr const char* stepwiseConfigurationInterface =
     "xyz.openbmc_project.Configuration.Stepwise";
-constexpr const char* thermalControlIface =
-    "xyz.openbmc_project.Control.ThermalMode";
-constexpr const char* sensorInterface = "xyz.openbmc_project.Sensor.Value";
-constexpr const char* defaultPwmInterface =
-    "xyz.openbmc_project.Control.FanPwm";
 
 using Association = std::tuple<std::string, std::string, std::string>;
 using Associations = std::vector<Association>;
 
 namespace thresholds
 {
-constexpr const char* warningInterface =
-    "xyz.openbmc_project.Sensor.Threshold.Warning";
-constexpr const char* criticalInterface =
-    "xyz.openbmc_project.Sensor.Threshold.Critical";
 const std::array<const char*, 4> types = {"CriticalLow", "CriticalHigh",
                                           "WarningLow", "WarningHigh"};
 
@@ -73,7 +97,7 @@ using SensorInterfaceType = std::pair<std::string, std::string>;
 
 inline std::string getSensorNameFromPath(const std::string& dbusPath)
 {
-    return dbusPath.substr(dbusPath.find_last_of("/") + 1);
+    return dbusPath.substr(dbusPath.find_last_of('/') + 1);
 }
 
 inline std::string sensorNameToDbusName(const std::string& sensorName)
@@ -86,11 +110,11 @@ inline std::string sensorNameToDbusName(const std::string& sensorName)
 std::vector<std::string> getSelectedProfiles(sdbusplus::bus_t& bus)
 {
     std::vector<std::string> ret;
-    auto mapper =
-        bus.new_method_call("xyz.openbmc_project.ObjectMapper",
-                            "/xyz/openbmc_project/object_mapper",
-                            "xyz.openbmc_project.ObjectMapper", "GetSubTree");
-    mapper.append("/", 0, std::array<const char*, 1>{thermalControlIface});
+    auto mapper = bus.new_method_call(
+        ObjectMapper::default_service, ObjectMapper::instance_path,
+        ObjectMapper::interface, ObjectMapper::method_names::get_sub_tree);
+    mapper.append("/", 0,
+                  std::array<const char*, 1>{ControlThermalMode::interface});
     std::unordered_map<
         std::string, std::unordered_map<std::string, std::vector<std::string>>>
         respData;
@@ -124,7 +148,8 @@ std::vector<std::string> getSelectedProfiles(sdbusplus::bus_t& bus)
             auto getProfile =
                 bus.new_method_call(busName.c_str(), path.c_str(),
                                     "org.freedesktop.DBus.Properties", "Get");
-            getProfile.append(thermalControlIface, "Current");
+            getProfile.append(ControlThermalMode::interface,
+                              ControlThermalMode::property_names::current);
             std::variant<std::string> variantResp;
             try
             {
@@ -139,7 +164,7 @@ std::vector<std::string> getSelectedProfiles(sdbusplus::bus_t& bus)
             ret.emplace_back(std::move(mode));
         }
     }
-    if constexpr (pid_control::conf::DEBUG)
+    if (debugEnabled)
     {
         std::cout << "Profiles selected: ";
         for (const auto& profile : ret)
@@ -160,8 +185,9 @@ int eventHandler(sd_bus_message* m, void* context, sd_bus_error*)
 
     // we skip associations because the mapper populates these, not the sensors
     const std::array<const char*, 2> skipList = {
-        "xyz.openbmc_project.Association",
-        "xyz.openbmc_project.Association.Definitions"};
+        sdbusplus::common::xyz::openbmc_project::Association::interface,
+        sdbusplus::common::xyz::openbmc_project::association::Definitions::
+            interface};
 
     sdbusplus::message_t message(m);
     if (std::string(message.get_member()) == "InterfacesAdded")
@@ -187,7 +213,7 @@ int eventHandler(sd_bus_message* m, void* context, sd_bus_error*)
             }
         }
 
-        if constexpr (pid_control::conf::DEBUG)
+        if (debugEnabled)
         {
             std::cout << "New config detected: " << path.str << std::endl;
             for (auto& d : data)
@@ -227,7 +253,7 @@ void createMatches(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer)
     static std::list<sdbusplus::bus::match_t> matches;
 
     const std::array<std::string, 4> interfaces = {
-        thermalControlIface, pidConfigurationInterface,
+        ControlThermalMode::interface, pidConfigurationInterface,
         pidZoneConfigurationInterface, stepwiseConfigurationInterface};
 
     // this list only needs to be created once
@@ -236,7 +262,7 @@ void createMatches(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer)
         return;
     }
 
-    // we restart when the configuration changes or there are new sensors
+    // We restart when configuration changes or new sensors.
     for (const auto& interface : interfaces)
     {
         matches.emplace_back(
@@ -310,7 +336,7 @@ inline void getCycleTimeSetting(
 }
 
 void populatePidInfo(
-    [[maybe_unused]] sdbusplus::bus_t& bus,
+    sdbusplus::bus_t& bus,
     const std::unordered_map<std::string, DbusVariantType>& base,
     conf::ControllerInfo& info, const std::string* thresholdProperty,
     const std::map<std::string, conf::SensorConfig>& sensorConfig)
@@ -338,27 +364,29 @@ void populatePidInfo(
     if (thresholdProperty != nullptr)
     {
         std::string interface;
-        if (*thresholdProperty == "WarningHigh" ||
-            *thresholdProperty == "WarningLow")
+        if (*thresholdProperty ==
+                SensorThresholdWarning::property_names::warning_high ||
+            *thresholdProperty ==
+                SensorThresholdWarning::property_names::warning_low)
         {
-            interface = thresholds::warningInterface;
+            interface = SensorThresholdWarning::interface;
         }
         else
         {
-            interface = thresholds::criticalInterface;
+            interface = SensorThresholdCritical::interface;
         }
 
         // Although this checks only the first vector element for the
         // named threshold, it is OK, because the SetPointOffset parser
         // splits up the input into individual vectors, each with only a
         // single element, if it detects that SetPointOffset is in use.
-        double reading = 0;
+	double reading = 0;
         try
         {
-            const std::string& path =
+		 const std::string& path =
                 sensorConfig.at(info.inputs.front().name).readPath;
 
-            DbusHelper helper(sdbusplus::bus::new_system());
+            DbusHelper helper(bus);
             std::string service = helper.getService(interface, path);
 
             helper.getProperty(service, path, interface, *thresholdProperty,
@@ -442,16 +470,15 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
 
     createMatches(bus, timer);
 
-    auto mapper =
-        bus.new_method_call("xyz.openbmc_project.ObjectMapper",
-                            "/xyz/openbmc_project/object_mapper",
-                            "xyz.openbmc_project.ObjectMapper", "GetSubTree");
+    auto mapper = bus.new_method_call(
+        ObjectMapper::default_service, ObjectMapper::instance_path,
+        ObjectMapper::interface, ObjectMapper::method_names::get_sub_tree);
     mapper.append(
         "/", 0,
         std::array<const char*, 6>{
             objectManagerInterface, pidConfigurationInterface,
             pidZoneConfigurationInterface, stepwiseConfigurationInterface,
-            sensorInterface, defaultPwmInterface});
+            SensorValue::interface, ControlFanPwm::interface});
     std::unordered_map<
         std::string, std::unordered_map<std::string, std::vector<std::string>>>
         respData;
@@ -492,11 +519,11 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                 {
                     owner.first = true;
                 }
-                if (interface == sensorInterface ||
-                    interface == defaultPwmInterface)
+                if (interface == SensorValue::interface ||
+                    interface == ControlFanPwm::interface)
                 {
                     // we're not interested in pwm sensors, just pwm control
-                    if (interface == sensorInterface &&
+                    if (interface == SensorValue::interface &&
                         objectPair.first.find("pwm") != std::string::npos)
                     {
                         continue;
@@ -765,6 +792,14 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                         std::get<bool>(findUnavailableAsFailed->second);
                 }
 
+                bool ignoreFailIfHostOff = false;
+                auto findIgnoreFailIfHostOff = base.find("IgnoreFailIfHostOff");
+                if (findIgnoreFailIfHostOff != base.end())
+                {
+                    ignoreFailIfHostOff =
+                        std::get<bool>(findIgnoreFailIfHostOff->second);
+                }
+
                 std::vector<SensorInterfaceType> inputSensorInterfaces;
                 std::vector<SensorInterfaceType> outputSensorInterfaces;
                 std::vector<SensorInterfaceType>
@@ -780,55 +815,62 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                  */
                 for (const std::string& sensorName : inputSensorNames)
                 {
-#ifndef HANDLE_MISSING_OBJECT_PATHS
-                    findSensors(sensors, sensorNameToDbusName(sensorName),
-                                inputSensorInterfaces);
-#else
-                    std::vector<std::pair<std::string, std::string>>
-                        sensorPathIfacePairs;
-                    auto found =
+                    if constexpr (!HANDLE_MISSING_OBJECT_PATHS)
+                    {
                         findSensors(sensors, sensorNameToDbusName(sensorName),
-                                    sensorPathIfacePairs);
-                    if (found)
-                    {
-                        inputSensorInterfaces.insert(
-                            inputSensorInterfaces.end(),
-                            sensorPathIfacePairs.begin(),
-                            sensorPathIfacePairs.end());
+                                    inputSensorInterfaces);
                     }
-                    else if (pidClass != "fan")
+                    else
                     {
-                        if (std::find(missingAcceptableSensorNames.begin(),
-                                      missingAcceptableSensorNames.end(),
-                                      sensorName) ==
-                            missingAcceptableSensorNames.end())
+                        std::vector<std::pair<std::string, std::string>>
+                            sensorPathIfacePairs;
+                        auto found = findSensors(
+                            sensors, sensorNameToDbusName(sensorName),
+                            sensorPathIfacePairs);
+                        if (found)
                         {
-                            std::cerr
-                                << "Pid controller: Missing a missing-unacceptable sensor from D-Bus "
-                                << sensorName << "\n";
-                            std::string inputSensorName =
-                                sensorNameToDbusName(sensorName);
-                            auto& config = sensorConfig[inputSensorName];
-                            archivedInputSensorNames.push_back(inputSensorName);
-                            config.type = pidClass;
-                            config.readPath =
-                                getSensorPath(config.type, inputSensorName);
-                            config.timeout = 0;
-                            config.ignoreDbusMinMax = true;
-                            config.unavailableAsFailed = unavailableAsFailed;
+                            inputSensorInterfaces.insert(
+                                inputSensorInterfaces.end(),
+                                sensorPathIfacePairs.begin(),
+                                sensorPathIfacePairs.end());
                         }
-                        else
+                        else if (pidClass != "fan")
                         {
-                            // When an input sensor is NOT on DBus, and it's in
-                            // the MissingIsAcceptable list. Ignore it and
-                            // continue with the next input sensor.
-                            std::cout
-                                << "Pid controller: Missing a missing-acceptable sensor from D-Bus "
-                                << sensorName << "\n";
-                            continue;
+                            if (std::find(missingAcceptableSensorNames.begin(),
+                                          missingAcceptableSensorNames.end(),
+                                          sensorName) ==
+                                missingAcceptableSensorNames.end())
+                            {
+                                std::cerr
+                                    << "Pid controller: Missing a missing-unacceptable sensor from D-Bus "
+                                    << sensorName << "\n";
+                                std::string inputSensorName =
+                                    sensorNameToDbusName(sensorName);
+                                auto& config = sensorConfig[inputSensorName];
+                                archivedInputSensorNames.push_back(
+                                    inputSensorName);
+                                config.type = pidClass;
+                                config.readPath =
+                                    getSensorPath(config.type, inputSensorName);
+                                config.timeout = 0;
+                                config.ignoreDbusMinMax = true;
+                                config.unavailableAsFailed =
+                                    unavailableAsFailed;
+                                config.ignoreFailIfHostOff =
+                                    ignoreFailIfHostOff;
+                            }
+                            else
+                            {
+                                // When an input sensor is NOT on DBus, and it's
+                                // in the MissingIsAcceptable list. Ignore it
+                                // and continue with the next input sensor.
+                                std::cout
+                                    << "Pid controller: Missing a missing-acceptable sensor from D-Bus "
+                                    << sensorName << "\n";
+                                continue;
+                            }
                         }
                     }
-#endif
                 }
                 for (const std::string& sensorName : outputSensorNames)
                 {
@@ -870,18 +912,18 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                         config.timeout = 0;
                         config.ignoreDbusMinMax = true;
                         config.unavailableAsFailed = unavailableAsFailed;
+                        config.ignoreFailIfHostOff = ignoreFailIfHostOff;
                     }
 
-                    if (dbusInterface != sensorInterface)
+                    if (dbusInterface != SensorValue::interface)
                     {
                         /* all expected inputs in the configuration are expected
                          * to be sensor interfaces
                          */
-                        throw std::runtime_error(
-                            "sensor at dbus path [" + inputSensorPath +
-                            "] has an interface [" + dbusInterface +
-                            "] that does not match the expected interface of " +
-                            sensorInterface);
+                        throw std::runtime_error(std::format(
+                            "sensor at dbus path [{}] has an interface [{}] that does not match the expected interface of {}",
+                            inputSensorPath, dbusInterface,
+                            SensorValue::interface));
                     }
                 }
 
@@ -901,16 +943,14 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                     missingAcceptableSensorNames.push_back(
                         missingAcceptableSensorName);
 
-                    if (dbusInterface != sensorInterface)
+                    if (dbusInterface != SensorValue::interface)
                     {
                         /* MissingIsAcceptable same error checking as Inputs
                          */
-                        throw std::runtime_error(
-                            "sensor at dbus path [" +
-                            missingAcceptableSensorPath +
-                            "] has an interface [" + dbusInterface +
-                            "] that does not match the expected interface of " +
-                            sensorInterface);
+                        throw std::runtime_error(std::format(
+                            "sensor at dbus path [{}] has an interface [{}] that does not match the expected interface of {}",
+                            missingAcceptableSensorPath, dbusInterface,
+                            SensorValue::interface));
                     }
                 }
 
@@ -999,14 +1039,12 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                             pwmInterface =
                                 outputSensorInterfaces.at(idx).second;
                         }
-                        if (defaultPwmInterface != pwmInterface)
+                        if (ControlFanPwm::interface != pwmInterface)
                         {
-                            throw std::runtime_error(
-                                "fan pwm control at dbus path [" + pwmPath +
-                                "] has an interface [" + pwmInterface +
-                                "] that does not match the expected interface "
-                                "of " +
-                                defaultPwmInterface);
+                            throw std::runtime_error(std::format(
+                                "fan pwm control at dbus path [{}] has an interface [{}] that does not match the expected interface of {}",
+                                pwmPath, pwmInterface,
+                                ControlFanPwm::interface));
                         }
                         const std::string& fanPath =
                             inputSensorInterfaces.at(idx).first;
@@ -1122,6 +1160,14 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                         std::get<bool>(findUnavailableAsFailed->second);
                 }
 
+                bool ignoreFailIfHostOff = false;
+                auto findIgnoreFailIfHostOff = base.find("IgnoreFailIfHostOff");
+                if (findIgnoreFailIfHostOff != base.end())
+                {
+                    ignoreFailIfHostOff =
+                        std::get<bool>(findIgnoreFailIfHostOff->second);
+                }
+
                 bool sensorFound = false;
                 for (const std::string& sensorName : sensorNames)
                 {
@@ -1130,9 +1176,10 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                     if (!findSensors(sensors, sensorNameToDbusName(sensorName),
                                      sensorPathIfacePairs))
                     {
-#ifndef HANDLE_MISSING_OBJECT_PATHS
-                        break;
-#else
+                        if constexpr (!HANDLE_MISSING_OBJECT_PATHS)
+                        {
+                            break;
+                        }
                         if (std::find(missingAcceptableSensorNames.begin(),
                                       missingAcceptableSensorNames.end(),
                                       sensorName) ==
@@ -1155,6 +1202,7 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                                 getSensorPath(config.type, shortName);
                             config.ignoreDbusMinMax = true;
                             config.unavailableAsFailed = unavailableAsFailed;
+                            config.ignoreFailIfHostOff = ignoreFailIfHostOff;
                             // todo: maybe un-hardcode this if we run into
                             // slower timeouts with sensors
 
@@ -1171,7 +1219,6 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                                 << sensorName << "\n";
                             continue;
                         }
-#endif
                     }
                     else
                     {
@@ -1187,6 +1234,7 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                             config.type = "temp";
                             config.ignoreDbusMinMax = true;
                             config.unavailableAsFailed = unavailableAsFailed;
+                            config.ignoreFailIfHostOff = ignoreFailIfHostOff;
                             // todo: maybe un-hardcode this if we run into
                             // slower timeouts with sensors
 
@@ -1211,15 +1259,15 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
                             sensorNameToDbusName(missingAcceptableSensorName),
                             sensorPathIfacePairs))
                     {
-#ifndef HANDLE_MISSING_OBJECT_PATHS
-                        break;
-#else
+                        if constexpr (!HANDLE_MISSING_OBJECT_PATHS)
+                        {
+                            break;
+                        }
                         // When a sensor in the MissingIsAcceptable list is NOT
                         // on DBus and it still reaches here, which contradicts
                         // to what we did in the Input sensor building step.
                         // Continue.
                         continue;
-#endif
                     }
 
                     for (const auto& sensorPathIfacePair : sensorPathIfacePairs)
@@ -1299,7 +1347,7 @@ bool init(sdbusplus::bus_t& bus, boost::asio::steady_timer& timer,
             }
         }
     }
-    if constexpr (pid_control::conf::DEBUG)
+    if (debugEnabled)
     {
         debugPrint(sensorConfig, zoneConfig, zoneDetailsConfig);
     }

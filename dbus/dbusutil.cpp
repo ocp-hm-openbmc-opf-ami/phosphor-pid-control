@@ -1,10 +1,8 @@
-#include "util.hpp"
 
 #include <sdbusplus/bus/match.hpp>
 
 #include <cmath>
 #include <cstdint>
-#include <iostream>
 #include <map>
 #include <regex>
 #include <set>
@@ -84,7 +82,7 @@ bool findSensors(const std::unordered_map<std::string, std::string>& sensors,
     {
         if (std::regex_search(sensor.first, match, reg))
         {
-            matches.push_back(sensor);
+            matches.emplace_back(sensor);
         }
     }
     return matches.size() > 0;

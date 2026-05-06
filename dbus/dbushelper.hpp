@@ -4,9 +4,20 @@
 
 #include <phosphor-logging/log.hpp>
 #include <sdbusplus/bus.hpp>
+#include <sdbusplus/exception.hpp>
+#include <xyz/openbmc_project/Sensor/Threshold/Critical/common.hpp>
+#include <xyz/openbmc_project/Sensor/Threshold/Warning/common.hpp>
+#include <xyz/openbmc_project/State/Decorator/Availability/common.hpp>
 
 #include <string>
 #include <variant>
+
+using SensorThresholdWarning =
+    sdbusplus::common::xyz::openbmc_project::sensor::threshold::Warning;
+using SensorThresholdCritical =
+    sdbusplus::common::xyz::openbmc_project::sensor::threshold::Critical;
+using StateDecoratorAvailability =
+    sdbusplus::common::xyz::openbmc_project::state::decorator::Availability;
 
 namespace pid_control
 {
@@ -14,23 +25,17 @@ namespace pid_control
 class DbusHelper : public DbusHelperInterface
 {
   public:
-    static constexpr char sensorintf[] = "xyz.openbmc_project.Sensor.Value";
     static constexpr char propertiesintf[] = "org.freedesktop.DBus.Properties";
-    static constexpr char criticalThreshInf[] =
-        "xyz.openbmc_project.Sensor.Threshold.Critical";
-    static constexpr char warningThreshInf[] =
-        "xyz.openbmc_project.Sensor.Threshold.Warning";
-    static constexpr char availabilityIntf[] =
-        "xyz.openbmc_project.State.Decorator.Availability";
 
-    explicit DbusHelper(sdbusplus::bus_t bus) : _bus(std::move(bus)) {}
-    ~DbusHelper() = default;
+    explicit DbusHelper(sdbusplus::bus_t& bus) : _bus(bus) {}
+    DbusHelper() = delete;
+    ~DbusHelper() override = default;
 
     DbusHelper(const DbusHelper&) = delete;
     DbusHelper& operator=(const DbusHelper&) = delete;
 
     DbusHelper(DbusHelper&&) = default;
-    DbusHelper& operator=(DbusHelper&&) = default;
+    DbusHelper& operator=(DbusHelper&&) = delete;
 
     std::string getService(const std::string& intf,
                            const std::string& path) override;
@@ -70,7 +75,7 @@ class DbusHelper : public DbusHelperInterface
     }
 
   private:
-    sdbusplus::bus_t _bus;
+    sdbusplus::bus_t& _bus;
 };
 
 } // namespace pid_control
