@@ -3,6 +3,7 @@
 
 #include "failsafeloggers/builder.hpp"
 
+#include "conf.hpp"
 #include "failsafeloggers/failsafe_logger.hpp"
 #include "failsafeloggers/failsafe_logger_utility.hpp"
 
@@ -45,10 +46,13 @@ void buildFailsafeLoggers(
                 sensorNameToZoneId[sensorName].push_back(zoneId);
             }
         }
-        std::cerr << "Build failsafe logger for Zone " << zoneId
-                  << " with initial "
-                  << "failsafe mode: " << zoneIdToZone.second->getFailSafeMode()
-                  << "\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "Build failsafe logger for Zone " << zoneId
+                      << " with initial "
+                      << "failsafe mode: "
+                      << zoneIdToZone.second->getFailSafeMode() << "\n";
+        }
     }
 }
 

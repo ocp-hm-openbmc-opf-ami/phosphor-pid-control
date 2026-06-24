@@ -46,15 +46,21 @@ void FailsafeLogger::outputFailsafeLog(
     // mode. No need to output the log if the zone stays in non-failsafe mode.
     if (newFailsafeState)
     {
-        std::cerr << "Zone `" << zoneId
-                  << "` is in failsafe mode.\t\tWith update at `" << location
-                  << "`: " << reason << "\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "Zone `" << zoneId
+                      << "` is in failsafe mode.\t\tWith update at `"
+                      << location << "`: " << reason << "\n";
+        }
     }
     else if (!newFailsafeState && originFailsafeState)
     {
-        std::cerr << "Zone `" << zoneId
-                  << "` leaves failsafe mode.\t\tWith update at `" << location
-                  << "`: " << reason << "\n";
+        if constexpr (pid_control::conf::DEBUG)
+        {
+            std::cerr << "Zone `" << zoneId
+                      << "` leaves failsafe mode.\t\tWith update at `"
+                      << location << "`: " << reason << "\n";
+        }
     }
 
     _logTimestamps.push_back(nowMs);

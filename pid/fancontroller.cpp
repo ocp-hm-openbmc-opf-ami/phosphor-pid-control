@@ -188,8 +188,11 @@ void FanController::outputProc(double value)
                     failSensorList = _owner->getFailSafeSensors();
                 for (const auto& it : failSensorList)
                 {
-                    std::cerr << "Fail sensor: " << it.first
-                              << ", reason: " << it.second.first << "\n";
+                    if constexpr (pid_control::conf::DEBUG)
+                    {
+                        std::cerr << "Fail sensor: " << it.first
+                                  << ", reason: " << it.second.first << "\n";
+                    }
                 }
             }
         }
