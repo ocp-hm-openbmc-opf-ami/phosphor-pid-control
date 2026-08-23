@@ -1,5 +1,7 @@
 #include "failsafe_logger.hpp"
 
+#include "conf.hpp"
+
 #include <chrono>
 #include <cstdint>
 #include <iostream>
