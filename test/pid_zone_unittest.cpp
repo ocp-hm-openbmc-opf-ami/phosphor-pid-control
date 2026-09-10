@@ -95,7 +95,8 @@ TEST(PidZoneConstructorTest, BoringConstructorTest)
                     ObjectEnable::interface, propertiesenable, &de);
 
     DbusPidZone p(zone, minThermalOutput, failSafePercent, cycleTime, m,
-                  bus_mock_mode, objPath, defer, accSetPoint);
+                  bus_mock_mode, objPath, defer, conf::OemConfig{},
+                  accSetPoint);
     // Success.
 }
 
@@ -131,7 +132,7 @@ class PidZoneTest : public ::testing::Test
 
         zone = std::make_unique<DbusPidZone>(
             zoneId, minThermalOutput, failSafePercent, cycleTime, *mgr,
-            bus_mock_mode, objPath, defer, accSetPoint);
+            bus_mock_mode, objPath, defer, conf::OemConfig{}, accSetPoint);
     }
 
     // unused
