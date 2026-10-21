@@ -10,6 +10,7 @@
 #include "pid/controller.hpp"
 #include "pid/tuning.hpp"
 
+#include <phosphor-logging/lg2.hpp>
 #include <sdbusplus/bus.hpp>
 
 #include <algorithm>
@@ -124,7 +125,7 @@ void DbusPidZone::markSensorMissing(const std::string& name,
 
     if (debugEnabled)
     {
-        std::cerr << "Sensor " << name << " marked missing\n";
+        lg2::debug("Sensor {SENSOR} marked missing", "SENSOR", name);
     }
 }
 
@@ -338,8 +339,8 @@ static bool fileParseRpm(const std::string& fileName, double& rpmValue)
         tstamp now = std::chrono::steady_clock::now();
         if (allowThrottle(now, throttlePace))
         {
-            std::cerr << "Unable to read from '" << fileName << "': " << errText
-                      << "\n";
+            lg2::error("Unable to read from '{FILE_NAME}': {ERROR}",
+                       "FILE_NAME", fileName, "ERROR", errText);
         }
     }
 
@@ -404,21 +405,20 @@ void DbusPidZone::determineMaxSetPointRequest(void)
     {
         if constexpr (pid_control::conf::DEBUG)
         {
-            std::cerr << "PID Zone " << _zoneId << " max SetPoint "
-                      << _maximumSetPoint << " requested by "
-                      << _maximumSetPointName;
-        }
-        for (const auto& sensor : _failSafeSensors)
-        {
-            if (sensor.first.find("Fan") == std::string::npos)
+            std::string sensors;
+            for (const auto& sensor : _failSafeSensors)
             {
-                if constexpr (pid_control::conf::DEBUG)
+                if (sensor.first.find("Fan") == std::string::npos)
                 {
-                    std::cerr << " " << sensor.first;
+                    sensors += " " + sensor.first;
                 }
             }
+            lg2::info("PID Zone {ZONE} max SetPoint {MAX_SETPOINT} requested by "
+                      "{MAX_SETPOINT_NAME}{SENSORS}",
+                      "ZONE", _zoneId, "MAX_SETPOINT", _maximumSetPoint,
+                      "MAX_SETPOINT_NAME", _maximumSetPointName, "SENSORS",
+                      sensors);
         }
-        std::cerr << "\n";
         _maximumSetPointNamePrev.assign(_maximumSetPointName);
     }
     if (tuningEnabled)
@@ -546,27 +546,18 @@ void DbusPidZone::dumpCache(void)
 {
     if constexpr (pid_control::conf::DEBUG)
     {
-        std::cerr << "Cache values now: \n";
-    }
-    for (const auto& [name, value] : _cachedValuesByName)
-    {
-        if constexpr (pid_control::conf::DEBUG)
+        lg2::debug("Cache values now:");
+        for (const auto& [name, value] : _cachedValuesByName)
         {
-            std::cerr << name << ": " << value.scaled << " " << value.unscaled
-                      << "\n";
+            lg2::debug("{NAME}: {SCALED} {UNSCALED}", "NAME", name, "SCALED",
+                       value.scaled, "UNSCALED", value.unscaled);
         }
-    }
-    if constexpr (pid_control::conf::DEBUG)
-    {
-        std::cerr << "Fan outputs now: \n";
-    }
 
-    for (const auto& [name, value] : _cachedFanOutputs)
-    {
-        if constexpr (pid_control::conf::DEBUG)
+        lg2::debug("Fan outputs now:");
+        for (const auto& [name, value] : _cachedFanOutputs)
         {
-            std::cerr << name << ": " << value.scaled << " " << value.unscaled
-                      << "\n";
+            lg2::debug("{NAME}: {SCALED} {UNSCALED}", "NAME", name, "SCALED",
+                       value.scaled, "UNSCALED", value.unscaled);
         }
     }
 }
@@ -610,7 +601,7 @@ bool DbusPidZone::getRedundantWrite(void) const
 
 bool DbusPidZone::manual(bool value)
 {
-    std::cerr << "manual: " << value << std::endl;
+    lg2::info("manual: {VALUE}", "VALUE", value);
     setManualMode(value);
     return ModeObject::manual(value);
 }
@@ -679,9 +670,10 @@ void DbusPidZone::addPidFailSafePercent(const std::vector<std::string>& inputs,
                 std::max(_sensorFailSafePercent[sensorName], percent);
             if (debugEnabled)
             {
-                std::cerr << "Sensor " << sensorName
-                          << " failsafe percent updated to "
-                          << _sensorFailSafePercent[sensorName] << "\n";
+                lg2::debug(
+                    "Sensor {SENSOR} failsafe percent updated to {PERCENT}",
+                    "SENSOR", sensorName, "PERCENT",
+                    _sensorFailSafePercent[sensorName]);
             }
         }
         else
@@ -689,8 +681,8 @@ void DbusPidZone::addPidFailSafePercent(const std::vector<std::string>& inputs,
             _sensorFailSafePercent[sensorName] = percent;
             if (debugEnabled)
             {
-                std::cerr << "Sensor " << sensorName
-                          << " failsafe percent set to " << percent << "\n";
+                lg2::debug("Sensor {SENSOR} failsafe percent set to {PERCENT}",
+                           "SENSOR", sensorName, "PERCENT", percent);
             }
         }
     }
