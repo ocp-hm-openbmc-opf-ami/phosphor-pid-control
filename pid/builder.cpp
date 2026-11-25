@@ -13,9 +13,11 @@
 #include "pid/zone_interface.hpp"
 #include "util.hpp"
 
+#include <phosphor-logging/lg2.hpp>
 #include <sdbusplus/bus.hpp>
 
 #include <cstdint>
+#include <format>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -62,7 +64,7 @@ std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> buildZones(
                 "Bailing during load, missing Zone Configuration";
             if constexpr (pid_control::conf::DEBUG)
             {
-                std::cerr << err << std::endl;
+                lg2::error("{ERROR}", "ERROR", err);
             }
             throw std::runtime_error(err);
         }
@@ -75,7 +77,7 @@ std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> buildZones(
 
         if constexpr (pid_control::conf::DEBUG)
         {
-            std::cerr << "Zone Id: " << zone->getZoneID() << "\n";
+            lg2::debug("Zone Id: {ZONE}", "ZONE", zone->getZoneID());
         }
 
         // For each PID create a Controller and a Sensor.
@@ -84,7 +86,7 @@ std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> buildZones(
             std::vector<pid_control::conf::SensorInput> inputs;
             if constexpr (pid_control::conf::DEBUG)
             {
-                std::cerr << "PID name: " << name << "\n";
+                lg2::debug("PID name: {PID_NAME}", "PID_NAME", name);
             }
             /*
              * TODO(venture): Need to check if input is known to the
@@ -142,36 +144,21 @@ std::unordered_map<int64_t, std::shared_ptr<ZoneInterface>> buildZones(
 
             if constexpr (pid_control::conf::DEBUG)
             {
-                std::cerr << "inputs: ";
-            }
-            for (const auto& i : inputs)
-            {
-                if constexpr (pid_control::conf::DEBUG)
+                std::string inputStr;
+                for (const auto& i : inputs)
                 {
-                    std::cerr << i.name;
-                }
-                if (i.convertTempToMargin)
-                {
-                    if constexpr (pid_control::conf::DEBUG)
+                    inputStr += i.name;
+                    if (i.convertTempToMargin)
                     {
-                        std::cerr << "[" << i.convertMarginZero << "]";
+                        inputStr += std::format("[{}]", i.convertMarginZero);
                     }
-                }
-                if (i.missingIsAcceptable)
-                {
-                    if constexpr (pid_control::conf::DEBUG)
+                    if (i.missingIsAcceptable)
                     {
-                        std::cerr << "?";
+                        inputStr += '?';
                     }
+                    inputStr += ", ";
                 }
-                if constexpr (pid_control::conf::DEBUG)
-                {
-                    std::cerr << ", ";
-                }
-            }
-            if constexpr (pid_control::conf::DEBUG)
-            {
-                std::cerr << "\n";
+                lg2::debug("inputs: {INPUTS}", "INPUTS", inputStr);
             }
         }
 
